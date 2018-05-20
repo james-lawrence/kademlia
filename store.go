@@ -1,7 +1,6 @@
 package kademlia
 
 import (
-	"crypto/sha1"
 	"sync"
 	"time"
 )
@@ -29,9 +28,6 @@ type store interface {
 
 	// ExpireKeys should expire all key/values due for expiration.
 	ExpireKeys()
-
-	// GetKey returns the key for data
-	GetKey(data []byte) []byte
 }
 
 // MemoryStore is a simple in-memory key/value store used for unit testing, and
@@ -77,12 +73,6 @@ func (ms *MemoryStore) Init() {
 	ms.mutex = &sync.Mutex{}
 	ms.replicateMap = make(map[string]time.Time)
 	ms.expireMap = make(map[string]time.Time)
-}
-
-// GetKey returns the key for data
-func (ms *MemoryStore) GetKey(data []byte) []byte {
-	sha := sha1.Sum(data)
-	return sha[:]
 }
 
 // Store will store a key/value pair for the local node with the given

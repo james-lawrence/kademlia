@@ -42,6 +42,7 @@ type queryDataFindValue struct {
 }
 
 type queryDataStore struct {
+	Key        []byte
 	Data       []byte
 	Publishing bool // Whether or not we are the original publisher
 }

@@ -225,9 +225,8 @@ func TestStoreAndFindLargeValue(t *testing.T) {
 	dht2.Bootstrap(dht1.ht.Self)
 
 	payload := [1000000]byte{}
-
-	key, err := dht1.Store(payload[:])
-	assert.NoError(t, err)
+	key := ContentAddressable(payload[:])
+	assert.NoError(t, dht1.Store(key, payload[:]))
 
 	time.Sleep(1 * time.Second)
 
@@ -426,7 +425,8 @@ func TestStoreReplication(t *testing.T) {
 		),
 	)
 
-	dht.Store([]byte("foo"))
+	payload := []byte("foo")
+	dht.Store(ContentAddressable(payload), payload)
 
 	<-replicate
 
@@ -446,7 +446,9 @@ func TestStoreExpiration(t *testing.T) {
 
 	go dht.Listen()
 
-	k, _ := dht.Store([]byte("foo"))
+	payload := []byte("foo")
+	k := ContentAddressable(payload)
+	assert.NoError(t, dht.Store(k, payload))
 
 	v, exists, _ := dht.Get(k)
 	assert.Equal(t, true, exists)

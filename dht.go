@@ -123,19 +123,17 @@ func (dht *DHT) getExpirationTime(key []byte) time.Time {
 	return time.Now().Add(dur)
 }
 
-// Store stores data on the network. This will trigger an iterateStore message.
-// The base58 encoded identifier will be returned if the store is successful.
-func (dht *DHT) Store(data []byte) (id []byte, err error) {
-	key := dht.store.GetKey(data)
+// Store stores data at the provided key on the network. This will trigger an iterateStore message.
+func (dht *DHT) Store(key, data []byte) (err error) {
 	expiration := dht.getExpirationTime(key)
 	replication := time.Now().Add(dht.TReplicate)
 	dht.store.Store(key, data, replication, expiration, true)
-	_, _, err = dht.iterate(iterateStore, key[:], data)
+	_, _, err = dht.iterate(iterateStore, key, data)
 	if err != nil {
-		return id, err
+		return err
 	}
 
-	return key, nil
+	return nil
 }
 
 // Get retrieves data from the networking using key. Key is the base58 encoded
@@ -167,15 +165,14 @@ func (dht *DHT) NumNodes() int {
 	return dht.ht.totalNodes()
 }
 
-// GetSelfID returns the base58 encoded identifier of the local node
+// GetSelfID returns the identifier of the local node
 func (dht *DHT) GetSelfID() []byte {
 	return dht.ht.Self.ID
 }
 
-// GetNetworkAddr returns the publicly accessible IP and Port of the local
-// node
-func (dht *DHT) GetNetworkAddr() string {
-	return dht.networking.getNetworkAddr()
+// GetSelf returns the node information of the local node.
+func (dht *DHT) GetSelf() *NetworkNode {
+	return dht.ht.Self
 }
 
 // Listen begins listening on the socket for incoming messages
@@ -438,13 +435,14 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 						return nil, nil, nil
 					}
 
-					query := &message{}
-					query.Receiver = n
-					query.Sender = dht.ht.Self
-					query.Type = messageTypeStore
-					queryData := &queryDataStore{}
-					queryData.Data = data
-					query.Data = queryData
+					query := &message{
+						Type:     messageTypeStore,
+						Receiver: n,
+						Sender:   dht.ht.Self,
+						Data: &queryDataStore{
+							Data: data,
+						},
+					}
 					dht.networking.sendMessage(query, false, -1)
 				}
 				return nil, nil, nil
@@ -541,10 +539,10 @@ func (dht *DHT) listen() {
 				dht.networking.messagesFin()
 				return
 			}
+
 			switch msg.Type {
 			case messageTypeFindNode:
 				data := msg.Data.(*queryDataFindNode)
-				dht.addNode(newNode(msg.Sender))
 				closest := dht.ht.getClosestContacts(dht.ht.bSize, data.Target, []*NetworkNode{msg.Sender})
 				response := &message{IsResponse: true}
 				response.Sender = dht.ht.Self
@@ -556,7 +554,6 @@ func (dht *DHT) listen() {
 				dht.networking.sendMessage(response, false, msg.ID)
 			case messageTypeFindValue:
 				data := msg.Data.(*queryDataFindValue)
-				dht.addNode(newNode(msg.Sender))
 				value, exists := dht.store.Retrieve(data.Target)
 				response := &message{IsResponse: true}
 				response.ID = msg.ID
@@ -574,18 +571,20 @@ func (dht *DHT) listen() {
 				dht.networking.sendMessage(response, false, msg.ID)
 			case messageTypeStore:
 				data := msg.Data.(*queryDataStore)
-				dht.addNode(newNode(msg.Sender))
-				key := dht.store.GetKey(data.Data)
-				expiration := dht.getExpirationTime(key)
+				expiration := dht.getExpirationTime(data.Key)
 				replication := time.Now().Add(dht.TReplicate)
-				dht.store.Store(key, data.Data, replication, expiration, false)
+				dht.store.Store(data.Key, data.Data, replication, expiration, false)
 			case messageTypePing:
 				response := &message{IsResponse: true}
 				response.Sender = dht.ht.Self
 				response.Receiver = msg.Sender
 				response.Type = messageTypePing
 				dht.networking.sendMessage(response, false, msg.ID)
+				// not interested in adding nodes due to a ping.
+				continue
 			}
+
+			dht.addNode(newNode(msg.Sender))
 		case <-dht.networking.getDisconnect():
 			dht.networking.messagesFin()
 			return
