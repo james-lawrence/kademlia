@@ -286,7 +286,8 @@ func NewID() ([]byte, error) {
 	return result, err
 }
 
-func mustID() []byte {
+// MustNewID panics if it fails to generate a new random ID.
+func MustNewID() []byte {
 	id, err := NewID()
 	if err != nil {
 		panic(err)

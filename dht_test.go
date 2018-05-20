@@ -18,7 +18,7 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 	port := 3000
 	dhts := []*DHT{}
 	for i := 0; i < 20; i++ {
-		n, err := NewNode(mustID(), net.JoinHostPort("127.0.0.1", strconv.Itoa(port+i)))
+		n, err := NewNode(MustNewID(), net.JoinHostPort("127.0.0.1", strconv.Itoa(port+i)))
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -56,8 +56,8 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 // about each other afterwards.
 func TestBootstrapTwoNodes(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
-	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
+	dht1 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -88,9 +88,9 @@ func TestBootstrapTwoNodes(t *testing.T) {
 // about both B and C
 func TestBootstrapThreeNodes(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
-	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
-	dht3 := NewDHT(mustNode(mustID(), "127.0.0.1:3002"))
+	dht1 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3001"))
+	dht3 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3002"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -137,8 +137,8 @@ func TestBootstrapThreeNodes(t *testing.T) {
 // ping the first node to find its ID
 func TestBootstrapNoID(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
-	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
+	dht1 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -172,8 +172,8 @@ func TestBootstrapNoID(t *testing.T) {
 func TestReconnect(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		done := make(chan bool)
-		dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
-		dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
+		dht1 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3000"))
+		dht2 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3001"))
 
 		assert.Equal(t, 0, dht1.NumNodes())
 
@@ -205,8 +205,8 @@ func TestReconnect(t *testing.T) {
 // this data in its store.
 func TestStoreAndFindLargeValue(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
-	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
+	dht1 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(MustNewID(), "127.0.0.1:3001"))
 
 	go func() {
 		err := dht1.Listen()
