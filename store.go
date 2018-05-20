@@ -18,9 +18,6 @@ type store interface {
 	// Delete should delete a key/value pair from the Store
 	Delete(key []byte)
 
-	// Init initializes the Store
-	Init()
-
 	// GetAllKeysForReplication should return the keys of all data to be
 	// replicated across the network. Typically all data should be
 	// replicated every tReplicate seconds.
@@ -28,6 +25,16 @@ type store interface {
 
 	// ExpireKeys should expire all key/values due for expiration.
 	ExpireKeys()
+}
+
+// NewMemoryStore create a properly initialized memory store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{
+		data:         make(map[string][]byte),
+		mutex:        &sync.Mutex{},
+		replicateMap: make(map[string]time.Time),
+		expireMap:    make(map[string]time.Time),
+	}
 }
 
 // MemoryStore is a simple in-memory key/value store used for unit testing, and
@@ -65,14 +72,6 @@ func (ms *MemoryStore) ExpireKeys() {
 			delete(ms.data, k)
 		}
 	}
-}
-
-// Init initializes the Store
-func (ms *MemoryStore) Init() {
-	ms.data = make(map[string][]byte)
-	ms.mutex = &sync.Mutex{}
-	ms.replicateMap = make(map[string]time.Time)
-	ms.expireMap = make(map[string]time.Time)
 }
 
 // Store will store a key/value pair for the local node with the given

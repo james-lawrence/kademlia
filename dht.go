@@ -51,10 +51,6 @@ type DHT struct {
 	// required to publish its entire database
 	TReplicate time.Duration
 
-	// The time after which the original publisher must
-	// republish a key/value pair. Currently not implemented.
-	TRepublish time.Duration
-
 	// The maximum time to wait for a response from a node before discarding
 	// it from the bucket
 	TPingMax time.Duration
@@ -67,11 +63,10 @@ type DHT struct {
 // provided.
 func NewDHT(n NetworkNode, options ...Option) *DHT {
 	dht := &DHT{
-		store:       &MemoryStore{},
+		store:       NewMemoryStore(),
 		ht:          newHashTable(&n),
 		networking:  newNetwork(&n),
 		TExpire:     24 * time.Hour,
-		TRepublish:  24 * time.Hour,
 		TRefresh:    time.Hour,
 		TReplicate:  time.Hour,
 		TPingMax:    time.Second,
@@ -81,8 +76,6 @@ func NewDHT(n NetworkNode, options ...Option) *DHT {
 	for _, opt := range options {
 		opt(dht)
 	}
-
-	dht.store.Init()
 
 	return dht
 }
