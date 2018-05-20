@@ -36,22 +36,9 @@ func OptionRefresh(d time.Duration) Option {
 
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
-	store
+	store      store
 	ht         *hashTable
 	networking networking
-
-	// Whether or not to use the STUN protocol to determine public IP and Port
-	// May be necessary if the node is behind a NAT
-	UseStun bool
-
-	// Specifies the the host of the STUN server. If left empty will use the
-	// default specified in go-stun.
-	StunAddr string
-
-	// The nodes being used to bootstrap the network. Without a bootstrap
-	// node there is no way to connect to the network. NetworkNodes can be
-	// initialized via dht.NewNetworkNode()
-	BootstrapNodes []*NetworkNode
 
 	// time after which a key/value pair expires;
 	// this is a time-to-live (TTL) from the original publication date
