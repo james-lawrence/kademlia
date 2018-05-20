@@ -92,10 +92,10 @@ type node struct {
 	*NetworkNode
 }
 
-func newNode(networkNode *NetworkNode) *node {
-	n := &node{}
-	n.NetworkNode = networkNode
-	return n
+func newNode(n *NetworkNode) *node {
+	return &node{
+		NetworkNode: n,
+	}
 }
 
 // nodeList is used in order to sort a list of arbitrary nodes against a

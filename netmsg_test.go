@@ -12,7 +12,7 @@ func TestSerializeNetMsg(t *testing.T) {
 	var conn bytes.Buffer
 
 	node := newNode(&NetworkNode{})
-	id, _ := newID()
+	id, _ := NewID()
 	node.ID = id
 	node.Port = 3000
 	node.IP = net.ParseIP("0.0.0.0")

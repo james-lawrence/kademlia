@@ -279,15 +279,15 @@ func (ht *hashTable) totalNodes() int {
 	return total
 }
 
-// newID generates a new random ID
-func newID() ([]byte, error) {
+// NewID generates a new random ID
+func NewID() ([]byte, error) {
 	result := make([]byte, 20)
 	_, err := crand.Read(result)
 	return result, err
 }
 
 func mustID() []byte {
-	id, err := newID()
+	id, err := NewID()
 	if err != nil {
 		panic(err)
 	}
