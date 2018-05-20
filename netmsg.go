@@ -14,6 +14,15 @@ const (
 	messageTypeFindValue
 )
 
+func init() {
+	gob.Register(&queryDataFindNode{})
+	gob.Register(&queryDataFindValue{})
+	gob.Register(&queryDataStore{})
+	gob.Register(&responseDataFindNode{})
+	gob.Register(&responseDataFindValue{})
+	gob.Register(&responseDataStore{})
+}
+
 type message struct {
 	Sender     *NetworkNode
 	Receiver   *NetworkNode
@@ -48,15 +57,6 @@ type responseDataFindValue struct {
 
 type responseDataStore struct {
 	Success bool
-}
-
-func netMsgInit() {
-	gob.Register(&queryDataFindNode{})
-	gob.Register(&queryDataFindValue{})
-	gob.Register(&queryDataStore{})
-	gob.Register(&responseDataFindNode{})
-	gob.Register(&responseDataFindValue{})
-	gob.Register(&responseDataStore{})
 }
 
 func serializeMessage(q *message) ([]byte, error) {

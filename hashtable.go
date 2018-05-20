@@ -2,13 +2,12 @@ package kademlia
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"errors"
 	"math"
 	"math/big"
 	"math/rand"
-	"net"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -22,20 +21,17 @@ const (
 const (
 	// a small number representing the degree of parallelism in network calls
 	alpha = 3
-
-	// the size in bits of the keys used to identify nodes and store and
-	// retrieve data; in basic Kademlia this is 160, the length of a SHA1
-	b = 160
-
-	// the maximum number of contacts stored in a bucket
-	k = 20
 )
 
 // hashTable represents the hashtable state
 type hashTable struct {
 	// The ID of the local node
 	Self *NetworkNode
-
+	// the size in bits of the keys used to identify nodes and store and
+	// retrieve data; in basic Kademlia this is 160, the length of a SHA1
+	bBits int
+	// the maximum number of contacts stored in a bucket
+	bSize int
 	// Routing table a list of all known nodes in the network
 	// Nodes within buckets are sorted by least recently seen e.g.
 	// [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
@@ -45,55 +41,28 @@ type hashTable struct {
 
 	mutex *sync.Mutex
 
-	refreshMap [b]time.Time
+	refreshMap []time.Time
 }
 
-func newHashTable(options *Options) (*hashTable, error) {
-	ht := &hashTable{}
-
-	rand.Seed(time.Now().UnixNano())
-
-	ht.mutex = &sync.Mutex{}
-	ht.Self = &NetworkNode{}
-
-	if options.ID != nil {
-		ht.Self.ID = options.ID
-	} else {
-		id, err := newID()
-		if err != nil {
-			return nil, err
-		}
-		ht.Self.ID = id
+func newHashTable(n *NetworkNode) *hashTable {
+	ht := &hashTable{
+		bBits: 160,
+		bSize: 20,
+		mutex: &sync.Mutex{},
+		Self:  n,
 	}
 
-	if options.IP == "" || options.Port == "" {
-		return nil, errors.New("Port and IP required")
-	}
+	ht.refreshMap = make([]time.Time, ht.bBits)
 
-	err := ht.setSelfAddr(options.IP, options.Port)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := 0; i < b; i++ {
+	for i := 0; i < ht.bBits; i++ {
 		ht.resetRefreshTimeForBucket(i)
 	}
 
-	for i := 0; i < b; i++ {
+	for i := 0; i < ht.bBits; i++ {
 		ht.RoutingTable = append(ht.RoutingTable, []*node{})
 	}
 
-	return ht, nil
-}
-
-func (ht *hashTable) setSelfAddr(ip string, port string) error {
-	ht.Self.IP = net.ParseIP(ip)
-	p, err := strconv.Atoi(port)
-	if err != nil {
-		return err
-	}
-	ht.Self.Port = p
-	return nil
+	return ht
 }
 
 func (ht *hashTable) resetRefreshTimeForBucket(bucket int) {
@@ -111,7 +80,7 @@ func (ht *hashTable) getRefreshTimeForBucket(bucket int) time.Time {
 func (ht *hashTable) markNodeAsSeen(node []byte) {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
-	index := getBucketIndexFromDifferingBit(ht.Self.ID, node)
+	index := getBucketIndexFromDifferingBit(ht.bBits, ht.Self.ID, node)
 	bucket := ht.RoutingTable[index]
 	nodeIndex := -1
 	for i, v := range bucket {
@@ -146,12 +115,12 @@ func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes []*
 	defer ht.mutex.Unlock()
 	// First we need to build the list of adjacent indices to our target
 	// in order
-	index := getBucketIndexFromDifferingBit(ht.Self.ID, target)
+	index := getBucketIndexFromDifferingBit(ht.bBits, ht.Self.ID, target)
 	indexList := []int{index}
 	i := index - 1
 	j := index + 1
-	for len(indexList) < b {
-		if j < b {
+	for len(indexList) < ht.bBits {
+		if j < ht.bBits {
 			indexList = append(indexList, j)
 		}
 		if i >= 0 {
@@ -195,7 +164,7 @@ func (ht *hashTable) removeNode(ID []byte) {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 
-	index := getBucketIndexFromDifferingBit(ht.Self.ID, ID)
+	index := getBucketIndexFromDifferingBit(ht.bBits, ht.Self.ID, ID)
 	bucket := ht.RoutingTable[index]
 
 	for i, v := range bucket {
@@ -230,8 +199,8 @@ func (ht *hashTable) getTotalNodesInBucket(bucket int) int {
 }
 
 func (ht *hashTable) getDistance(id1 []byte, id2 []byte) *big.Int {
-	var dst [k]byte
-	for i := 0; i < k; i++ {
+	dst := make([]byte, ht.bSize)
+	for i := 0; i < ht.bSize; i++ {
 		dst[i] = id1[i] ^ id2[i]
 	}
 	ret := big.NewInt(0)
@@ -279,7 +248,7 @@ func (ht *hashTable) getRandomIDFromBucket(bucket int) []byte {
 	return id
 }
 
-func getBucketIndexFromDifferingBit(id1 []byte, id2 []byte) int {
+func getBucketIndexFromDifferingBit(b int, id1 []byte, id2 []byte) int {
 	// Look at each byte from left to right
 	for j := 0; j < len(id1); j++ {
 		// xor the byte
@@ -313,8 +282,16 @@ func (ht *hashTable) totalNodes() int {
 // newID generates a new random ID
 func newID() ([]byte, error) {
 	result := make([]byte, 20)
-	_, err := rand.Read(result)
+	_, err := crand.Read(result)
 	return result, err
+}
+
+func mustID() []byte {
+	id, err := newID()
+	if err != nil {
+		panic(err)
+	}
+	return id
 }
 
 // Simple helper function to determine the value of a particular

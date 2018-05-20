@@ -1,15 +1,14 @@
 package kademlia
 
 import (
+	"context"
 	"errors"
-	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/anacrolix/utp"
-	"github.com/ccding/go-stun/stun"
 )
 
 var (
@@ -21,34 +20,11 @@ type networking interface {
 	getMessage() chan (*message)
 	messagesFin()
 	timersFin()
-	getDisconnect() chan (int)
-	init(self *NetworkNode)
-	createSocket(host string, port string, useStun bool, stunAddr string) (publicHost string, publicPort string, err error)
+	getDisconnect() chan int
 	listen() error
 	disconnect() error
 	cancelResponse(*expectedResponse)
-	isInitialized() bool
 	getNetworkAddr() string
-}
-
-type realNetworking struct {
-	socket        *utp.Socket
-	sendChan      chan (*message)
-	recvChan      chan (*message)
-	dcStartChan   chan (int)
-	dcEndChan     chan (int)
-	dcTimersChan  chan (int)
-	dcMessageChan chan (int)
-	address       *net.UDPAddr
-	connection    *net.UDPConn
-	mutex         *sync.Mutex
-	connected     bool
-	initialized   bool
-	responseMap   map[int64]*expectedResponse
-	aliveConns    *sync.WaitGroup
-	self          *NetworkNode
-	msgCounter    int64
-	remoteAddress string
 }
 
 type expectedResponse struct {
@@ -58,24 +34,42 @@ type expectedResponse struct {
 	id    int64
 }
 
-func (rn *realNetworking) init(self *NetworkNode) {
-	rn.self = self
-	rn.mutex = &sync.Mutex{}
-	rn.sendChan = make(chan (*message))
-	rn.recvChan = make(chan (*message))
-	rn.dcStartChan = make(chan (int), 10)
-	rn.dcEndChan = make(chan (int))
-	rn.dcTimersChan = make(chan (int))
-	rn.dcMessageChan = make(chan (int))
-	rn.responseMap = make(map[int64]*expectedResponse)
-	rn.aliveConns = &sync.WaitGroup{}
-	rn.connected = false
-	rn.initialized = true
+func newNetwork(n *NetworkNode) *realNetworking {
+	return &realNetworking{
+		self:          n,
+		mutex:         &sync.Mutex{},
+		sendChan:      make(chan *message),
+		recvChan:      make(chan *message),
+		dcStartChan:   make(chan int, 10),
+		dcEndChan:     make(chan int),
+		dcTimersChan:  make(chan int),
+		dcMessageChan: make(chan int),
+		responseMap:   make(map[int64]*expectedResponse),
+		aliveConns:    &sync.WaitGroup{},
+		connected:     n.socket != nil,
+	}
 }
 
-func (rn *realNetworking) isInitialized() bool {
-	return rn.initialized
+type realNetworking struct {
+	sendChan      chan (*message)
+	recvChan      chan (*message)
+	dcStartChan   chan int
+	dcEndChan     chan int
+	dcTimersChan  chan int
+	dcMessageChan chan int
+	mutex         *sync.Mutex
+	connected     bool
+	// initialized   bool
+	responseMap   map[int64]*expectedResponse
+	aliveConns    *sync.WaitGroup
+	self          *NetworkNode
+	msgCounter    int64
+	remoteAddress string
 }
+
+// func (rn *realNetworking) isInitialized() bool {
+// 	return rn.initialized
+// }
 
 func (rn *realNetworking) getMessage() chan (*message) {
 	return rn.recvChan
@@ -89,7 +83,7 @@ func (rn *realNetworking) messagesFin() {
 	rn.dcMessageChan <- 1
 }
 
-func (rn *realNetworking) getDisconnect() chan (int) {
+func (rn *realNetworking) getDisconnect() chan int {
 	return rn.dcStartChan
 }
 
@@ -97,61 +91,15 @@ func (rn *realNetworking) timersFin() {
 	rn.dcTimersChan <- 1
 }
 
-func (rn *realNetworking) createSocket(host string, port string, useStun bool, stunAddr string) (publicHost string, publicPort string, err error) {
-	rn.mutex.Lock()
-	defer rn.mutex.Unlock()
-	if rn.connected {
-		return "", "", errors.New("already connected")
-	}
-
-	remoteAddress := "[" + host + "]" + ":" + port
-
-	socket, err := utp.NewSocket("udp", remoteAddress)
-	if err != nil {
-		return "", "", err
-	}
-
-	if useStun {
-		c := stun.NewClientWithConnection(socket)
-
-		if stunAddr != "" {
-			c.SetServerAddr(stunAddr)
-		}
-
-		_, h, err := c.Discover()
-		if err != nil {
-			return "", "", err
-		}
-
-		_, err = c.Keepalive()
-		if err != nil {
-			return "", "", err
-		}
-
-		host = h.IP()
-		port = strconv.Itoa(int(h.Port()))
-		remoteAddress = "[" + host + "]" + ":" + port
-	}
-
-	rn.remoteAddress = remoteAddress
-
-	rn.connected = true
-
-	rn.socket = socket
-
-	return host, port, nil
-}
-
 func (rn *realNetworking) sendMessage(msg *message, expectResponse bool, id int64) (*expectedResponse, error) {
-	rn.mutex.Lock()
 	if id == -1 {
-		id = rn.msgCounter
-		rn.msgCounter++
+		id = atomic.AddInt64(&rn.msgCounter, 1)
 	}
 	msg.ID = id
-	rn.mutex.Unlock()
 
-	conn, err := rn.socket.DialTimeout("["+msg.Receiver.IP.String()+"]:"+strconv.Itoa(msg.Receiver.Port), time.Second)
+	deadline, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := rn.self.socket.DialContext(deadline, "", net.JoinHostPort(msg.Receiver.IP.String(), strconv.Itoa(msg.Receiver.Port)))
 	if err != nil {
 		return nil, err
 	}
@@ -205,17 +153,15 @@ func (rn *realNetworking) disconnect() error {
 	close(rn.recvChan)
 	close(rn.dcTimersChan)
 	close(rn.dcMessageChan)
-	err := rn.socket.CloseNow()
+	err := rn.self.socket.CloseNow()
 	rn.connected = false
-	rn.initialized = false
 	close(rn.dcEndChan)
 	return err
 }
 
 func (rn *realNetworking) listen() error {
 	for {
-		conn, err := rn.socket.Accept()
-
+		conn, err := rn.self.socket.Accept()
 		if err != nil {
 			rn.disconnect()
 			<-rn.dcEndChan
@@ -283,7 +229,10 @@ func (rn *realNetworking) listen() error {
 						delete(rn.responseMap, msg.ID)
 						rn.mutex.Unlock()
 					} else {
-						assertion := false
+						var (
+							assertion bool
+						)
+
 						switch msg.Type {
 						case messageTypeFindNode:
 							_, assertion = msg.Data.(*queryDataFindNode)
@@ -296,7 +245,7 @@ func (rn *realNetworking) listen() error {
 						}
 
 						if !assertion {
-							fmt.Printf("Received bad message %v from %+v", msg.Type, msg.Sender)
+							log.Printf("Received bad message %v from %+v", msg.Type, msg.Sender)
 							close(rn.responseMap[msg.ID].ch)
 							delete(rn.responseMap, msg.ID)
 							rn.mutex.Unlock()

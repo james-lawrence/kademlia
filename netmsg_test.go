@@ -9,7 +9,6 @@ import (
 )
 
 func TestSerializeNetMsg(t *testing.T) {
-	netMsgInit()
 	var conn bytes.Buffer
 
 	node := newNode(&NetworkNode{})

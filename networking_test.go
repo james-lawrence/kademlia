@@ -5,6 +5,17 @@ import (
 	"net"
 )
 
+func newMockNetworking() *mockNetworking {
+	return &mockNetworking{
+		recv:          make(chan *message),
+		send:          make(chan *message),
+		msgChan:       make(chan *message),
+		dcMessageChan: make(chan int),
+		dcTimersChan:  make(chan int),
+		dc:            make(chan int),
+	}
+}
+
 type mockNetworking struct {
 	recv          chan (*message)
 	send          chan (*message)
@@ -14,11 +25,6 @@ type mockNetworking struct {
 	msgChan       chan (*message)
 	failNext      bool
 	msgCounter    int64
-}
-
-func newMockNetworking() *mockNetworking {
-	net := &mockNetworking{}
-	return net
 }
 
 func (net *mockNetworking) listen() error {
@@ -43,14 +49,14 @@ func (net *mockNetworking) isInitialized() bool {
 	return true
 }
 
-func (net *mockNetworking) createSocket(host string, port string, useStun bool, stunAddr string) (publicHost string, publicPort string, err error) {
+func (net *mockNetworking) createSocket(host net.IP, port string, useStun bool, stunAddr string) (publicHost string, publicPort string, err error) {
 	return "", "", nil
 }
 
 func (net *mockNetworking) cancelResponse(*expectedResponse) {
 }
 
-func (net *mockNetworking) init(self *NetworkNode) {
+func (net *mockNetworking) init() {
 	net.recv = make(chan (*message))
 	net.send = make(chan (*message))
 	net.msgChan = make(chan (*message))

@@ -14,22 +14,8 @@ import (
 // is occupied.
 func TestFindNodeAllBuckets(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
-
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id,
-		Port: "3000",
-		IP:   "0.0.0.0",
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(0, byte(math.Pow(2, 7))),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
-	dht.CreateSocket()
 
 	go func() {
 		dht.Listen()
@@ -60,13 +46,19 @@ func TestFindNodeAllBuckets(t *testing.T) {
 		}
 	}()
 
-	dht.Bootstrap()
+	dht.Bootstrap(
+		&NetworkNode{
+			ID:   getZerodIDWithNthByte(0, byte(math.Pow(2, 7))),
+			Port: 3001,
+			IP:   net.ParseIP("0.0.0.0"),
+		},
+	)
 
 	for _, v := range dht.ht.RoutingTable {
 		assert.Equal(t, 1, len(v))
 	}
 
-	dht.Disconnect()
+	assert.NoError(t, dht.Disconnect())
 }
 
 // Tests timing out of nodes in a bucket. DHT bootstraps networks and learns
@@ -75,32 +67,18 @@ func TestFindNodeAllBuckets(t *testing.T) {
 // added in order to determine if it is still alive.
 func TestAddNodeTimeout(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
-	done := make(chan (int))
-	pinged := make(chan (int))
-
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id,
-		Port: "3000",
-		IP:   "0.0.0.0",
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(1, byte(255)),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	done := make(chan int)
+	pinged := make(chan int)
+	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
-	dht.CreateSocket()
 
-	go func() {
-		dht.Listen()
-	}()
+	go dht.Listen()
 
-	var nodesAdded = 1
-	var firstNode []byte
-	var lastNode []byte
+	var (
+		nodesAdded = 1
+		firstNode  []byte
+		lastNode   []byte
+	)
 
 	go func() {
 		for {
@@ -111,7 +89,7 @@ func TestAddNodeTimeout(t *testing.T) {
 			switch query.Type {
 			case messageTypeFindNode:
 				id := getIDWithValues(0)
-				if nodesAdded > k+1 {
+				if nodesAdded > dht.ht.bSize+1 {
 					close(done)
 					return
 				}
@@ -120,7 +98,7 @@ func TestAddNodeTimeout(t *testing.T) {
 					firstNode = id
 				}
 
-				if nodesAdded == k {
+				if nodesAdded == dht.ht.bSize {
 					lastNode = id
 				}
 
@@ -137,41 +115,37 @@ func TestAddNodeTimeout(t *testing.T) {
 		}
 	}()
 
-	dht.Bootstrap()
+	dht.Bootstrap(
+		&NetworkNode{
+			ID:   getZerodIDWithNthByte(1, byte(255)),
+			Port: 3001,
+			IP:   net.ParseIP("0.0.0.0"),
+		},
+	)
 
 	// ensure the first node in the table is the second node contacted, and the
 	// last is the last node contacted
-	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[b-9][0].ID, firstNode))
-	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[b-9][19].ID, lastNode))
+	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[dht.ht.bBits-9][0].ID, firstNode))
+	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[dht.ht.bBits-9][19].ID, lastNode))
 
 	<-done
 	<-pinged
 
-	dht.Disconnect()
+	assert.NoError(t, dht.Disconnect())
 }
 
 func TestGetRandomIDFromBucket(t *testing.T) {
-	id := getIDWithValues(0)
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id,
-		Port: "3000",
-		IP:   "0.0.0.0",
-	})
-
-	dht.CreateSocket()
-
-	go func() {
-		dht.Listen()
-	}()
+	dht := NewDHT(mustNode(getIDWithValues(0), "127.0.0.1:3000"))
+	go dht.Listen()
 
 	// Bytes should be equal up to the bucket index that the random ID was
 	// generated for, and random afterwards
-	for i := 0; i < b/8; i++ {
+	for i := 0; i < dht.ht.bBits/8; i++ {
 		r := dht.ht.getRandomIDFromBucket(i * 8)
 		for j := 0; j < i; j++ {
 			assert.Equal(t, byte(0), r[j])
 		}
 	}
 
-	dht.Disconnect()
+	assert.NoError(t, dht.Disconnect())
 }

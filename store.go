@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// Store is the interface for implementing the storage mechanism for the
+// store is the interface for implementing the storage mechanism for the
 // DHT.
-type Store interface {
+type store interface {
 	// Store should store a key/value pair for the local node with the
 	// given replication and expiration times.
 	Store(key []byte, data []byte, replication time.Time, expiration time.Time, publisher bool) error

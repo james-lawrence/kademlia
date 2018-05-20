@@ -5,18 +5,84 @@ import (
 	"math/big"
 	"net"
 	"strconv"
+
+	"github.com/anacrolix/utp"
+	"github.com/ccding/go-stun/stun"
 )
+
+func mustNode(id []byte, addr string) NetworkNode {
+	n, err := NewNode(id, addr)
+	if err != nil {
+		panic(err)
+	}
+
+	return n
+}
+
+// NewNode create a new socket.
+func NewNode(id []byte, addr string) (n NetworkNode, err error) {
+	s, err := utp.NewSocket("udp", addr)
+	if err != nil {
+		return n, err
+	}
+
+	h, port, err := net.SplitHostPort(s.Addr().String())
+	if err != nil {
+		return n, err
+	}
+
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return n, err
+	}
+
+	return NetworkNode{
+		ID:     id,
+		IP:     net.ParseIP(h),
+		Port:   p,
+		socket: s,
+	}, nil
+}
+
+// NewStunNode enable stun for discovery using the given net.PacketConn
+// and the provided stun server address.
+func NewStunNode(id []byte, addr, stunAddr string) (n NetworkNode, err error) {
+	if n, err = NewNode(id, addr); err != nil {
+		return n, err
+	}
+
+	c := stun.NewClientWithConnection(n.socket)
+	c.SetServerAddr(addr)
+
+	_, h, err := c.Discover()
+	if err != nil {
+		return n, err
+	}
+
+	_, err = c.Keepalive()
+	if err != nil {
+		return n, err
+	}
+
+	return NetworkNode{
+		IP:     net.ParseIP(h.IP()),
+		Port:   int(h.Port()),
+		socket: n.socket,
+	}, nil
+}
 
 // NetworkNode is the over-the-wire representation of a node
 type NetworkNode struct {
 	// ID is a 20 byte unique identifier
 	ID []byte
 
-	// IP is the IPv4 address of the node
+	// IP is the public address of the node
 	IP net.IP
 
-	// Port is the port of the node
+	// Port is the public port of the node
 	Port int
+
+	socket *utp.Socket
 }
 
 // node represents a node in the network locally
@@ -24,15 +90,6 @@ type NetworkNode struct {
 // here later such as RTT, or LastSeen time
 type node struct {
 	*NetworkNode
-}
-
-// NewNetworkNode creates a new NetworkNode for bootstrapping
-func NewNetworkNode(ip string, port string) *NetworkNode {
-	p, _ := strconv.Atoi(port)
-	return &NetworkNode{
-		IP:   net.ParseIP(ip),
-		Port: p,
-	}
 }
 
 func newNode(networkNode *NetworkNode) *node {

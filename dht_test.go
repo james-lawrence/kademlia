@@ -2,6 +2,7 @@ package kademlia
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -17,41 +18,36 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 	port := 3000
 	dhts := []*DHT{}
 	for i := 0; i < 20; i++ {
-		id, _ := newID()
-		dht, _ := NewDHT(getInMemoryStore(), &Options{
-			ID:   id,
-			IP:   "127.0.0.1",
-			Port: strconv.Itoa(port),
-			BootstrapNodes: []*NetworkNode{
-				NewNetworkNode("127.0.0.1", strconv.Itoa(port-1)),
-			},
-		})
-		port++
-		dhts = append(dhts, dht)
-		err := dht.CreateSocket()
-		assert.NoError(t, err)
+		n, err := NewNode(mustID(), net.JoinHostPort("127.0.0.1", strconv.Itoa(port+i)))
+		if !assert.NoError(t, err) {
+			return
+		}
+		dhts = append(dhts, NewDHT(n))
 	}
 
 	for _, dht := range dhts {
 		assert.Equal(t, 0, dht.NumNodes())
 		go func(dht *DHT) {
-			err := dht.Listen()
-			assert.Equal(t, "closed", err.Error())
+			assert.Equal(t, "closed", dht.Listen().Error())
 			done <- true
 		}(dht)
-		go func(dht *DHT) {
-			err := dht.Bootstrap()
-			assert.NoError(t, err)
-		}(dht)
+		go func(dht *DHT, peers ...*DHT) {
+			bs := make([]*NetworkNode, 0, len(peers))
+			for _, b := range peers {
+				if bytes.Compare(dht.ht.Self.ID, b.ht.Self.ID) != 0 {
+					bs = append(bs, zeroNodeID(b.ht.Self))
+				}
+			}
+			assert.NoError(t, dht.Bootstrap(bs...))
+		}(dht, dhts...)
 		time.Sleep(time.Millisecond * 200)
 	}
 
-	time.Sleep(time.Millisecond * 2000)
-
+	time.Sleep(2 * time.Second)
+	fmt.Println("checking number of nodes")
 	for _, dht := range dhts {
 		assert.Equal(t, 19, dht.NumNodes())
-		err := dht.Disconnect()
-		assert.NoError(t, err)
+		assert.NoError(t, dht.Disconnect())
 		<-done
 	}
 }
@@ -60,47 +56,18 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 // about each other afterwards.
 func TestBootstrapTwoNodes(t *testing.T) {
 	done := make(chan bool)
-
-	id1, _ := newID()
-	dht1, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id1,
-		IP:   "127.0.0.1",
-		Port: "3000",
-	})
-
-	dht2, _ := NewDHT(getInMemoryStore(), &Options{
-		BootstrapNodes: []*NetworkNode{
-			{
-				ID:   id1,
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 3000,
-			},
-		},
-		IP:   "127.0.0.1",
-		Port: "3001",
-	})
-
-	err := dht1.CreateSocket()
-	assert.NoError(t, err)
-
-	err = dht2.CreateSocket()
-	assert.NoError(t, err)
+	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
 
 	go func() {
 		go func() {
-			err := dht2.Bootstrap()
-			assert.NoError(t, err)
-
+			assert.NoError(t, dht2.Bootstrap(zeroNodeID(dht1.ht.Self)))
 			time.Sleep(50 * time.Millisecond)
-
-			err = dht2.Disconnect()
-			assert.NoError(t, err)
-
-			err = dht1.Disconnect()
-			assert.NoError(t, err)
+			assert.NoError(t, dht2.Disconnect())
+			assert.NoError(t, dht1.Disconnect())
 			done <- true
 		}()
 		err := dht2.Listen()
@@ -108,7 +75,7 @@ func TestBootstrapTwoNodes(t *testing.T) {
 		done <- true
 	}()
 
-	err = dht1.Listen()
+	err := dht1.Listen()
 	assert.Equal(t, "closed", err.Error())
 
 	assert.Equal(t, 1, dht1.NumNodes())
@@ -121,48 +88,9 @@ func TestBootstrapTwoNodes(t *testing.T) {
 // about both B and C
 func TestBootstrapThreeNodes(t *testing.T) {
 	done := make(chan bool)
-
-	id1, _ := newID()
-	dht1, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id1,
-		IP:   "127.0.0.1",
-		Port: "3000",
-	})
-
-	id2, _ := newID()
-	dht2, _ := NewDHT(getInMemoryStore(), &Options{
-		BootstrapNodes: []*NetworkNode{
-			{
-				ID:   id1,
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 3000,
-			},
-		},
-		IP:   "127.0.0.1",
-		Port: "3001",
-		ID:   id2,
-	})
-
-	dht3, _ := NewDHT(getInMemoryStore(), &Options{
-		BootstrapNodes: []*NetworkNode{
-			{
-				ID:   id2,
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 3001,
-			},
-		},
-		IP:   "127.0.0.1",
-		Port: "3002",
-	})
-
-	err := dht1.CreateSocket()
-	assert.NoError(t, err)
-
-	err = dht2.CreateSocket()
-	assert.NoError(t, err)
-
-	err = dht3.CreateSocket()
-	assert.NoError(t, err)
+	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
+	dht3 := NewDHT(mustNode(mustID(), "127.0.0.1:3002"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -170,39 +98,31 @@ func TestBootstrapThreeNodes(t *testing.T) {
 
 	go func(dht1 *DHT, dht2 *DHT, dht3 *DHT) {
 		go func(dht1 *DHT, dht2 *DHT, dht3 *DHT) {
-			err := dht2.Bootstrap()
-			assert.NoError(t, err)
+			assert.NoError(t, dht2.Bootstrap(dht1.ht.Self))
 
 			go func(dht1 *DHT, dht2 *DHT, dht3 *DHT) {
-				err := dht3.Bootstrap()
-				assert.NoError(t, err)
-
+				assert.NoError(t, dht3.Bootstrap(dht2.ht.Self))
 				time.Sleep(500 * time.Millisecond)
 
-				err = dht1.Disconnect()
-				assert.NoError(t, err)
-
+				assert.NoError(t, dht1.Disconnect())
 				time.Sleep(100 * time.Millisecond)
 
-				err = dht2.Disconnect()
-				assert.NoError(t, err)
-
-				err = dht3.Disconnect()
-				assert.NoError(t, err)
+				assert.NoError(t, dht2.Disconnect())
+				assert.NoError(t, dht3.Disconnect())
 				done <- true
 			}(dht1, dht2, dht3)
 
-			err = dht3.Listen()
+			err := dht3.Listen()
 			assert.Equal(t, "closed", err.Error())
 			done <- true
 		}(dht1, dht2, dht3)
+
 		err := dht2.Listen()
 		assert.Equal(t, "closed", err.Error())
 		done <- true
 	}(dht1, dht2, dht3)
 
-	err = dht1.Listen()
-	assert.Equal(t, "closed", err.Error())
+	assert.Equal(t, "closed", dht1.Listen().Error())
 
 	assert.Equal(t, 2, dht1.NumNodes())
 	assert.Equal(t, 2, dht2.NumNodes())
@@ -217,55 +137,27 @@ func TestBootstrapThreeNodes(t *testing.T) {
 // ping the first node to find its ID
 func TestBootstrapNoID(t *testing.T) {
 	done := make(chan bool)
-
-	id1, _ := newID()
-	dht1, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id1,
-		IP:   "127.0.0.1",
-		Port: "3000",
-	})
-
-	dht2, _ := NewDHT(getInMemoryStore(), &Options{
-		BootstrapNodes: []*NetworkNode{
-			{
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 3000,
-			},
-		},
-		IP:   "127.0.0.1",
-		Port: "3001",
-	})
-
-	err := dht1.CreateSocket()
-	assert.NoError(t, err)
-
-	err = dht2.CreateSocket()
-	assert.NoError(t, err)
+	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
 
 	go func() {
 		go func() {
-			err := dht2.Bootstrap()
-			assert.NoError(t, err)
+			assert.NoError(t, dht2.Bootstrap(zeroNodeID(dht1.ht.Self)))
 
 			time.Sleep(50 * time.Millisecond)
 
-			err = dht2.Disconnect()
-			assert.NoError(t, err)
-
-			err = dht1.Disconnect()
-			assert.NoError(t, err)
+			assert.NoError(t, dht2.Disconnect())
+			assert.NoError(t, dht1.Disconnect())
 			done <- true
 		}()
-		err := dht2.Listen()
-		assert.Equal(t, "closed", err.Error())
+		assert.Equal(t, "closed", dht2.Listen().Error())
 		done <- true
 	}()
 
-	err = dht1.Listen()
-	assert.Equal(t, "closed", err.Error())
+	assert.Equal(t, "closed", dht1.Listen().Error())
 
 	assert.Equal(t, 1, dht1.NumNodes())
 	assert.Equal(t, 1, dht2.NumNodes())
@@ -280,54 +172,24 @@ func TestBootstrapNoID(t *testing.T) {
 func TestReconnect(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		done := make(chan bool)
-
-		id1, _ := newID()
-		dht1, _ := NewDHT(getInMemoryStore(), &Options{
-			ID:   id1,
-			IP:   "127.0.0.1",
-			Port: "3000",
-		})
-
-		dht2, _ := NewDHT(getInMemoryStore(), &Options{
-			BootstrapNodes: []*NetworkNode{
-				{
-					ID:   id1,
-					IP:   net.ParseIP("127.0.0.1"),
-					Port: 3000,
-				},
-			},
-			IP:   "127.0.0.1",
-			Port: "3001",
-		})
-
-		err := dht1.CreateSocket()
-		assert.NoError(t, err)
-
-		err = dht2.CreateSocket()
-		assert.NoError(t, err)
+		dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
+		dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
 
 		assert.Equal(t, 0, dht1.NumNodes())
 
 		go func() {
 			go func() {
-				err := dht2.Bootstrap()
-				assert.NoError(t, err)
-
-				err = dht2.Disconnect()
-				assert.NoError(t, err)
-
-				err = dht1.Disconnect()
-				assert.NoError(t, err)
-
+				assert.NoError(t, dht2.Bootstrap(dht1.ht.Self))
+				assert.NoError(t, dht2.Disconnect())
+				assert.NoError(t, dht1.Disconnect())
 				done <- true
 			}()
-			err := dht2.Listen()
-			assert.Equal(t, "closed", err.Error())
-			done <- true
 
+			assert.Equal(t, "closed", dht2.Listen().Error())
+			done <- true
 		}()
 
-		err = dht1.Listen()
+		err := dht1.Listen()
 		assert.Equal(t, "closed", err.Error())
 
 		assert.Equal(t, 1, dht1.NumNodes())
@@ -343,31 +205,8 @@ func TestReconnect(t *testing.T) {
 // this data in its store.
 func TestStoreAndFindLargeValue(t *testing.T) {
 	done := make(chan bool)
-
-	id1, _ := newID()
-	dht1, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id1,
-		IP:   "127.0.0.1",
-		Port: "3000",
-	})
-
-	dht2, _ := NewDHT(getInMemoryStore(), &Options{
-		BootstrapNodes: []*NetworkNode{
-			{
-				ID:   id1,
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 3000,
-			},
-		},
-		IP:   "127.0.0.1",
-		Port: "3001",
-	})
-
-	err := dht1.CreateSocket()
-	assert.NoError(t, err)
-
-	err = dht2.CreateSocket()
-	assert.NoError(t, err)
+	dht1 := NewDHT(mustNode(mustID(), "127.0.0.1:3000"))
+	dht2 := NewDHT(mustNode(mustID(), "127.0.0.1:3001"))
 
 	go func() {
 		err := dht1.Listen()
@@ -383,7 +222,7 @@ func TestStoreAndFindLargeValue(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	dht2.Bootstrap()
+	dht2.Bootstrap(dht1.ht.Self)
 
 	payload := [1000000]byte{}
 
@@ -396,12 +235,8 @@ func TestStoreAndFindLargeValue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, true, exists)
 	assert.Equal(t, 0, bytes.Compare(payload[:], value))
-
-	err = dht1.Disconnect()
-	assert.NoError(t, err)
-
-	err = dht2.Disconnect()
-	assert.NoError(t, err)
+	assert.NoError(t, dht1.Disconnect())
+	assert.NoError(t, dht2.Disconnect())
 
 	<-done
 	<-done
@@ -411,23 +246,9 @@ func TestStoreAndFindLargeValue(t *testing.T) {
 // send over uTP
 func TestNetworkingSendError(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
-	done := make(chan (int))
-
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id,
-		Port: "3000",
-		IP:   "0.0.0.0",
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(1, byte(255)),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	done := make(chan int)
+	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
-	dht.CreateSocket()
 
 	go func() {
 		dht.Listen()
@@ -441,7 +262,11 @@ func TestNetworkingSendError(t *testing.T) {
 
 	networking.failNextSendMessage()
 
-	dht.Bootstrap()
+	dht.Bootstrap(&NetworkNode{
+		ID:   getZerodIDWithNthByte(1, byte(255)),
+		Port: 3001,
+		IP:   net.ParseIP("0.0.0.0"),
+	})
 
 	dht.Disconnect()
 
@@ -452,23 +277,10 @@ func TestNetworkingSendError(t *testing.T) {
 // never responds
 func TestNodeResponseSendError(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
 	done := make(chan (int))
 
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:   id,
-		Port: "3000",
-		IP:   "0.0.0.0",
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(1, byte(255)),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
-	dht.CreateSocket()
 
 	queries := 0
 
@@ -493,7 +305,13 @@ func TestNodeResponseSendError(t *testing.T) {
 		}
 	}()
 
-	dht.Bootstrap()
+	dht.Bootstrap(
+		&NetworkNode{
+			ID:   getZerodIDWithNthByte(1, byte(255)),
+			Port: 3001,
+			IP:   net.ParseIP("0.0.0.0"),
+		},
+	)
 
 	assert.Equal(t, 1, dht.ht.totalNodes())
 
@@ -506,31 +324,18 @@ func TestNodeResponseSendError(t *testing.T) {
 // node to a bucket, and waiting for the refresh message for the bucket
 func TestBucketRefresh(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
 	done := make(chan (int))
 	refresh := make(chan (int))
 
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:       id,
-		Port:     "3000",
-		IP:       "0.0.0.0",
-		TRefresh: time.Second * 2,
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(1, byte(255)),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	dht := NewDHT(
+		NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionRefresh(time.Second),
+	)
 	dht.networking = networking
-	dht.CreateSocket()
 
 	queries := 0
 
-	go func() {
-		dht.Listen()
-	}()
+	go dht.Listen()
 
 	go func() {
 		for {
@@ -550,14 +355,20 @@ func TestBucketRefresh(t *testing.T) {
 		}
 	}()
 
-	dht.Bootstrap()
+	assert.NoError(
+		t,
+		dht.Bootstrap(
+			&NetworkNode{
+				ID:   getZerodIDWithNthByte(1, byte(255)),
+				Port: 3001,
+				IP:   net.ParseIP("0.0.0.0"),
+			},
+		),
+	)
 
 	assert.Equal(t, 1, dht.ht.totalNodes())
-
 	<-refresh
-
-	dht.Disconnect()
-
+	assert.NoError(t, dht.Disconnect())
 	<-done
 }
 
@@ -565,25 +376,14 @@ func TestBucketRefresh(t *testing.T) {
 // Stores some data, and then expects another store message in TReplicate time
 func TestStoreReplication(t *testing.T) {
 	networking := newMockNetworking()
-	id := getIDWithValues(0)
 	done := make(chan (int))
 	replicate := make(chan (int))
 
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:         id,
-		Port:       "3000",
-		IP:         "0.0.0.0",
-		TReplicate: time.Second * 2,
-		BootstrapNodes: []*NetworkNode{{
-			ID:   getZerodIDWithNthByte(1, byte(255)),
-			Port: 3001,
-			IP:   net.ParseIP("0.0.0.0"),
-		},
-		},
-	})
-
+	dht := NewDHT(
+		NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionReplicate(time.Second),
+	)
 	dht.networking = networking
-	dht.CreateSocket()
 
 	go func() {
 		dht.Listen()
@@ -614,7 +414,17 @@ func TestStoreReplication(t *testing.T) {
 		}
 	}()
 
-	dht.Bootstrap()
+	// TODO: remove check if it causes test to fail.
+	assert.NoError(
+		t,
+		dht.Bootstrap(
+			&NetworkNode{
+				ID:   getZerodIDWithNthByte(1, byte(255)),
+				Port: 3001,
+				IP:   net.ParseIP("0.0.0.0"),
+			},
+		),
+	)
 
 	dht.Store([]byte("foo"))
 
@@ -629,20 +439,12 @@ func TestStoreReplication(t *testing.T) {
 // and then wait longer than TExpire. The value should no longer exist in
 // the store.
 func TestStoreExpiration(t *testing.T) {
-	id := getIDWithValues(0)
+	dht := NewDHT(
+		mustNode(getIDWithValues(0), "127.0.0.1:3000"),
+		OptionExpire(time.Second),
+	)
 
-	dht, _ := NewDHT(getInMemoryStore(), &Options{
-		ID:      id,
-		Port:    "3000",
-		IP:      "0.0.0.0",
-		TExpire: time.Second,
-	})
-
-	dht.CreateSocket()
-
-	go func() {
-		dht.Listen()
-	}()
+	go dht.Listen()
 
 	k, _ := dht.Store([]byte("foo"))
 
@@ -656,11 +458,12 @@ func TestStoreExpiration(t *testing.T) {
 	_, exists, _ = dht.Get(k)
 
 	assert.Equal(t, false, exists)
-
-	dht.Disconnect()
+	assert.NoError(t, dht.Disconnect())
 }
 
-func getInMemoryStore() *MemoryStore {
-	memStore := &MemoryStore{}
-	return memStore
+func zeroNodeID(n *NetworkNode) *NetworkNode {
+	return &NetworkNode{
+		IP:   n.IP,
+		Port: n.Port,
+	}
 }
