@@ -67,10 +67,6 @@ type realNetworking struct {
 	remoteAddress string
 }
 
-// func (rn *realNetworking) isInitialized() bool {
-// 	return rn.initialized
-// }
-
 func (rn *realNetworking) getMessage() chan (*Message) {
 	return rn.recvChan
 }
@@ -93,8 +89,9 @@ func (rn *realNetworking) timersFin() {
 
 func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int64) (*expectedResponse, error) {
 	if id <= 0 {
-		msg.ID = atomic.AddInt64(rn.msgCounter, 1)
+		id = atomic.AddInt64(rn.msgCounter, 1)
 	}
+	msg.ID = id
 
 	deadline, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -120,11 +117,11 @@ func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int6
 			ch:    make(chan *Message),
 			node:  msg.Receiver,
 			query: msg,
-			id:    msg.ID,
+			id:    id,
 		}
 		// TODO we need a way to automatically clean these up as there are
 		// cases where they won't be removed manually
-		rn.responseMap[msg.ID] = expectedResponse
+		rn.responseMap[id] = expectedResponse
 		return expectedResponse, nil
 	}
 
