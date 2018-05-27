@@ -103,11 +103,11 @@ func (net *mockNetworking) sendMessage(q *Message, expectResponse bool, id int64
 
 func mockFindNodeResponse(query *Message, nextID []byte) *Message {
 	r := &Message{}
-	n := newNode(&NetworkNode{})
+	n := &NetworkNode{}
 	n.ID = query.Sender.ID
 	n.IP = query.Sender.IP
 	n.Port = query.Sender.Port
-	r.Receiver = n.NetworkNode
+	r.Receiver = n
 	r.Sender = &NetworkNode{ID: query.Receiver.ID, IP: net.ParseIP("0.0.0.0"), Port: 3001}
 	r.Type = query.Type
 	r.IsResponse = true
@@ -119,11 +119,11 @@ func mockFindNodeResponse(query *Message, nextID []byte) *Message {
 
 func mockFindNodeResponseEmpty(query *Message) *Message {
 	r := &Message{}
-	n := newNode(&NetworkNode{})
+	n := &NetworkNode{}
 	n.ID = query.Sender.ID
 	n.IP = query.Sender.IP
 	n.Port = query.Sender.Port
-	r.Receiver = n.NetworkNode
+	r.Receiver = n
 	r.Sender = &NetworkNode{ID: query.Receiver.ID, IP: net.ParseIP("0.0.0.0"), Port: 3001}
 	r.Type = query.Type
 	r.IsResponse = true

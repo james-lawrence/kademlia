@@ -2,7 +2,9 @@ package kademlia
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"sync"
@@ -144,6 +146,11 @@ func (dht *DHT) NumNodes() int {
 	return dht.ht.totalNodes()
 }
 
+// Nodes returns the nodes themselves sotred in the routing table.
+func (dht *DHT) Nodes() []*NetworkNode {
+	return dht.ht.Nodes()
+}
+
 // GetSelfID returns the identifier of the local node
 func (dht *DHT) GetSelfID() []byte {
 	return dht.ht.Self.ID
@@ -185,8 +192,7 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 			wg.Add(1)
 			expectedResponses = append(expectedResponses, res)
 		} else {
-			node := newNode(bn)
-			dht.addNode(node)
+			dht.addNode(bn)
 		}
 	}
 
@@ -199,7 +205,7 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 				case result := <-r.ch:
 					// If result is nil, channel was closed
 					if result != nil {
-						dht.addNode(newNode(result.Sender))
+						dht.addNode(result.Sender)
 					}
 					wg.Done()
 					return
@@ -227,6 +233,20 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 // will be closed.
 func (dht *DHT) Disconnect() error {
 	return dht.networking.disconnect()
+}
+
+// Send invoke an RPC call.
+func (dht *DHT) Send(m Message) (Message, error) {
+	MessageOptionSender(dht.ht.Self)(&m)
+
+	// Send the async queries and wait for a response
+	res, err := dht.networking.sendMessage(&m, true, -1)
+	if err != nil {
+		return Message{}, err
+	}
+
+	rmsg := <-res.ch
+	return *rmsg, nil
 }
 
 // Locate does an iterative search through the network based on key.
@@ -314,7 +334,7 @@ func (dht *DHT) Locate(key []byte) (closest []*NetworkNode, err error) {
 						// Channel was closed
 						return
 					}
-					dht.addNode(newNode(result.Sender))
+					dht.addNode(result.Sender)
 					resultChan <- result
 					return
 				case <-time.After(dht.TMsgTimeout):
@@ -582,7 +602,7 @@ func (dht *DHT) Locate(key []byte) (closest []*NetworkNode, err error) {
 // addNode adds a node into the appropriate k bucket
 // we store these buckets in big-endian order so we look at the bits
 // from right to left in order to find the appropriate bucket
-func (dht *DHT) addNode(node *node) {
+func (dht *DHT) addNode(node *NetworkNode) {
 	index := getBucketIndexFromDifferingBit(dht.ht.bBits, dht.ht.Self.ID, node.ID)
 
 	// Make sure node doesn't already exist
@@ -601,7 +621,7 @@ func (dht *DHT) addNode(node *node) {
 		// If the bucket is full we need to ping the first node to find out
 		// if it responds back in a reasonable amount of time. If not -
 		// we may remove it
-		n := bucket[0].NetworkNode
+		n := bucket[0]
 		query := &Message{}
 		query.Receiver = n
 		query.Sender = dht.ht.Self
@@ -635,8 +655,9 @@ func (dht *DHT) timers() {
 			for i := 0; i < dht.ht.bBits; i++ {
 				if time.Since(dht.ht.getRefreshTimeForBucket(i)) > dht.TRefresh {
 					id := dht.ht.getRandomIDFromBucket(dht.ht.bSize)
-					dht.Locate(id)
-					// dht.iterate(iterateFindNode, id, nil)
+					if _, err := dht.Locate(id); err != nil {
+						log.Println("failed to ping", hex.EncodeToString(id))
+					}
 				}
 			}
 		case <-dht.networking.getDisconnect():
@@ -698,7 +719,7 @@ func (dht *DHT) listen(out chan *Message) {
 				}
 			}
 
-			dht.addNode(newNode(msg.Sender))
+			dht.addNode(msg.Sender)
 		case <-dht.networking.getDisconnect():
 			dht.networking.messagesFin()
 			return

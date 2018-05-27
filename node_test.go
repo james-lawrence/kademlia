@@ -9,7 +9,7 @@ import (
 )
 
 func TestDistanceMetric(t *testing.T) {
-	n := newNode(&NetworkNode{})
+	n := &NetworkNode{}
 	n.ID = getIDWithValues(0)
 	assert.Equal(t, 20, len(n.ID))
 

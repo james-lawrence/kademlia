@@ -85,19 +85,6 @@ type NetworkNode struct {
 	socket *utp.Socket
 }
 
-// node represents a node in the network locally
-// a separate struct due to the fact that we may want to add some metadata
-// here later such as RTT, or LastSeen time
-type node struct {
-	*NetworkNode
-}
-
-func newNode(n *NetworkNode) *node {
-	return &node{
-		NetworkNode: n,
-	}
-}
-
 // nodeList is used in order to sort a list of arbitrary nodes against a
 // comparator. These nodes are sorted by xor distance
 type shortList struct {
@@ -152,7 +139,7 @@ func (n *shortList) AppendUniqueNetworkNodes(nodes []*NetworkNode) {
 	}
 }
 
-func (n *shortList) AppendUnique(nodes []*node) {
+func (n *shortList) AppendUnique(nodes ...*NetworkNode) {
 	for _, vv := range nodes {
 		exists := false
 		for _, v := range n.Nodes {
@@ -161,7 +148,7 @@ func (n *shortList) AppendUnique(nodes []*node) {
 			}
 		}
 		if !exists {
-			n.Nodes = append(n.Nodes, vv.NetworkNode)
+			n.Nodes = append(n.Nodes, vv)
 		}
 	}
 }

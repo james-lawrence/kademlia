@@ -23,6 +23,14 @@ func init() {
 	gob.Register(&responseDataStore{})
 }
 
+type MessageOption func(*Message)
+
+func MessageOptionSender(n *NetworkNode) MessageOption {
+	return func(m *Message) {
+		m.Sender = n
+	}
+}
+
 // Message sent and received between nodes.
 type Message struct {
 	Sender     *NetworkNode

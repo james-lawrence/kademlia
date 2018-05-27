@@ -37,7 +37,7 @@ type hashTable struct {
 	// [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
 	//  ^                                                           ^
 	//  └ Least recently seen                    Most recently seen ┘
-	RoutingTable [][]*node // 160x20
+	RoutingTable [][]*NetworkNode // 160x20
 
 	mutex *sync.Mutex
 
@@ -59,7 +59,7 @@ func newHashTable(n *NetworkNode) *hashTable {
 	}
 
 	for i := 0; i < ht.bBits; i++ {
-		ht.RoutingTable = append(ht.RoutingTable, []*node{})
+		ht.RoutingTable = append(ht.RoutingTable, []*NetworkNode{})
 	}
 
 	return ht
@@ -146,7 +146,7 @@ func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes []*
 				}
 			}
 			if !ignored {
-				sl.AppendUnique([]*node{ht.RoutingTable[index][i]})
+				sl.AppendUnique(ht.RoutingTable[index][i])
 				leftToAdd--
 				if leftToAdd == 0 {
 					break
@@ -277,6 +277,16 @@ func (ht *hashTable) totalNodes() int {
 		total += len(v)
 	}
 	return total
+}
+
+func (ht *hashTable) Nodes() (nodes []*NetworkNode) {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+	nodes = make([]*NetworkNode, 0, ht.bSize)
+	for _, v := range ht.RoutingTable {
+		nodes = append(nodes, v...)
+	}
+	return nodes
 }
 
 // NewID generates a new random ID

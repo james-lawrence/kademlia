@@ -118,7 +118,7 @@ func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int6
 		rn.mutex.Lock()
 		defer rn.mutex.Unlock()
 		expectedResponse := &expectedResponse{
-			ch:    make(chan (*Message)),
+			ch:    make(chan *Message),
 			node:  msg.Receiver,
 			query: msg,
 			id:    id,

@@ -11,17 +11,18 @@ import (
 func TestSerializeNetMsg(t *testing.T) {
 	var conn bytes.Buffer
 
-	node := newNode(&NetworkNode{})
-	id, _ := NewID()
-	node.ID = id
-	node.Port = 3000
-	node.IP = net.ParseIP("0.0.0.0")
+	node := &NetworkNode{
+		ID:   MustNewID(),
+		Port: 3000,
+		IP:   net.ParseIP("0.0.0.0"),
+	}
 
-	msg := &Message{}
-	msg.Type = messageTypeFindNode
-	msg.Receiver = node.NetworkNode
-	msg.Data = &queryDataFindNode{
-		Target: id,
+	msg := &Message{
+		Type:     messageTypeFindNode,
+		Receiver: node,
+		Data: &queryDataFindNode{
+			Target: node.ID,
+		},
 	}
 
 	serialized, err := serializeMessage(msg)
