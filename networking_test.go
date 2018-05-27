@@ -7,9 +7,9 @@ import (
 
 func newMockNetworking() *mockNetworking {
 	return &mockNetworking{
-		recv:          make(chan *message),
-		send:          make(chan *message),
-		msgChan:       make(chan *message),
+		recv:          make(chan *Message),
+		send:          make(chan *Message),
+		msgChan:       make(chan *Message),
 		dcMessageChan: make(chan int),
 		dcTimersChan:  make(chan int),
 		dc:            make(chan int),
@@ -17,12 +17,12 @@ func newMockNetworking() *mockNetworking {
 }
 
 type mockNetworking struct {
-	recv          chan (*message)
-	send          chan (*message)
+	recv          chan (*Message)
+	send          chan (*Message)
 	dc            chan (int)
 	dcTimersChan  chan (int)
 	dcMessageChan chan (int)
-	msgChan       chan (*message)
+	msgChan       chan (*Message)
 	failNext      bool
 	msgCounter    int64
 }
@@ -57,9 +57,9 @@ func (net *mockNetworking) cancelResponse(*expectedResponse) {
 }
 
 func (net *mockNetworking) init() {
-	net.recv = make(chan (*message))
-	net.send = make(chan (*message))
-	net.msgChan = make(chan (*message))
+	net.recv = make(chan (*Message))
+	net.send = make(chan (*Message))
+	net.msgChan = make(chan (*Message))
 	net.dcMessageChan = make(chan (int))
 	net.dcTimersChan = make(chan (int))
 	net.dc = make(chan (int))
@@ -77,7 +77,7 @@ func (net *mockNetworking) getDisconnect() chan (int) {
 	return net.dc
 }
 
-func (net *mockNetworking) getMessage() chan (*message) {
+func (net *mockNetworking) getMessage() chan (*Message) {
 	return net.msgChan
 }
 
@@ -85,7 +85,7 @@ func (net *mockNetworking) failNextSendMessage() {
 	net.failNext = true
 }
 
-func (net *mockNetworking) sendMessage(q *message, expectResponse bool, id int64) (*expectedResponse, error) {
+func (net *mockNetworking) sendMessage(q *Message, expectResponse bool, id int64) (*expectedResponse, error) {
 	if id == 0 {
 		id = net.msgCounter
 		net.msgCounter++
@@ -101,8 +101,8 @@ func (net *mockNetworking) sendMessage(q *message, expectResponse bool, id int64
 	return nil, nil
 }
 
-func mockFindNodeResponse(query *message, nextID []byte) *message {
-	r := &message{}
+func mockFindNodeResponse(query *Message, nextID []byte) *Message {
+	r := &Message{}
 	n := newNode(&NetworkNode{})
 	n.ID = query.Sender.ID
 	n.IP = query.Sender.IP
@@ -117,8 +117,8 @@ func mockFindNodeResponse(query *message, nextID []byte) *message {
 	return r
 }
 
-func mockFindNodeResponseEmpty(query *message) *message {
-	r := &message{}
+func mockFindNodeResponseEmpty(query *Message) *Message {
+	r := &Message{}
 	n := newNode(&NetworkNode{})
 	n.ID = query.Sender.ID
 	n.IP = query.Sender.IP

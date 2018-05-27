@@ -24,6 +24,7 @@
 #   go-tests = true
 #   unused-packages = true
 
+# ignored = ["github.com/prettymuchbryce/kademlia"]
 
 [[constraint]]
   branch = "master"
@@ -32,10 +33,6 @@
 [[constraint]]
   name = "github.com/ccding/go-stun"
   version = "0.1.0"
-
-[[constraint]]
-  name = "github.com/jbenet/go-base58"
-  version = "1.0.0"
 
 [[constraint]]
   branch = "master"

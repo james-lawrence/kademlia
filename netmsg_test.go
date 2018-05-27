@@ -17,7 +17,7 @@ func TestSerializeNetMsg(t *testing.T) {
 	node.Port = 3000
 	node.IP = net.ParseIP("0.0.0.0")
 
-	msg := &message{}
+	msg := &Message{}
 	msg.Type = messageTypeFindNode
 	msg.Receiver = node.NetworkNode
 	msg.Data = &queryDataFindNode{

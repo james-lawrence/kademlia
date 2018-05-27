@@ -16,8 +16,8 @@ var (
 )
 
 type networking interface {
-	sendMessage(*message, bool, int64) (*expectedResponse, error)
-	getMessage() chan (*message)
+	sendMessage(*Message, bool, int64) (*expectedResponse, error)
+	getMessage() chan (*Message)
 	messagesFin()
 	timersFin()
 	getDisconnect() chan int
@@ -28,8 +28,8 @@ type networking interface {
 }
 
 type expectedResponse struct {
-	ch    chan (*message)
-	query *message
+	ch    chan (*Message)
+	query *Message
 	node  *NetworkNode
 	id    int64
 }
@@ -38,8 +38,8 @@ func newNetwork(n *NetworkNode) *realNetworking {
 	return &realNetworking{
 		self:          n,
 		mutex:         &sync.Mutex{},
-		sendChan:      make(chan *message),
-		recvChan:      make(chan *message),
+		sendChan:      make(chan *Message),
+		recvChan:      make(chan *Message),
 		dcStartChan:   make(chan int, 10),
 		dcEndChan:     make(chan int),
 		dcTimersChan:  make(chan int),
@@ -51,8 +51,8 @@ func newNetwork(n *NetworkNode) *realNetworking {
 }
 
 type realNetworking struct {
-	sendChan      chan (*message)
-	recvChan      chan (*message)
+	sendChan      chan (*Message)
+	recvChan      chan (*Message)
 	dcStartChan   chan int
 	dcEndChan     chan int
 	dcTimersChan  chan int
@@ -71,7 +71,7 @@ type realNetworking struct {
 // 	return rn.initialized
 // }
 
-func (rn *realNetworking) getMessage() chan (*message) {
+func (rn *realNetworking) getMessage() chan (*Message) {
 	return rn.recvChan
 }
 
@@ -91,7 +91,7 @@ func (rn *realNetworking) timersFin() {
 	rn.dcTimersChan <- 1
 }
 
-func (rn *realNetworking) sendMessage(msg *message, expectResponse bool, id int64) (*expectedResponse, error) {
+func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int64) (*expectedResponse, error) {
 	if id == -1 {
 		id = atomic.AddInt64(&rn.msgCounter, 1)
 	}
@@ -118,7 +118,7 @@ func (rn *realNetworking) sendMessage(msg *message, expectResponse bool, id int6
 		rn.mutex.Lock()
 		defer rn.mutex.Unlock()
 		expectedResponse := &expectedResponse{
-			ch:    make(chan (*message)),
+			ch:    make(chan (*Message)),
 			node:  msg.Receiver,
 			query: msg,
 			id:    id,
@@ -236,10 +236,6 @@ func (rn *realNetworking) listen() error {
 						switch msg.Type {
 						case messageTypeFindNode:
 							_, assertion = msg.Data.(*queryDataFindNode)
-						case messageTypeFindValue:
-							_, assertion = msg.Data.(*queryDataFindValue)
-						case messageTypeStore:
-							_, assertion = msg.Data.(*queryDataStore)
 						default:
 							assertion = true
 						}

@@ -23,7 +23,8 @@ func init() {
 	gob.Register(&responseDataStore{})
 }
 
-type message struct {
+// Message sent and received between nodes.
+type Message struct {
 	Sender     *NetworkNode
 	Receiver   *NetworkNode
 	ID         int64
@@ -60,7 +61,7 @@ type responseDataStore struct {
 	Success bool
 }
 
-func serializeMessage(q *message) ([]byte, error) {
+func serializeMessage(q *Message) ([]byte, error) {
 	var msgBuffer bytes.Buffer
 	enc := gob.NewEncoder(&msgBuffer)
 	err := enc.Encode(q)
@@ -80,7 +81,7 @@ func serializeMessage(q *message) ([]byte, error) {
 	return result, nil
 }
 
-func deserializeMessage(conn io.Reader) (*message, error) {
+func deserializeMessage(conn io.Reader) (*Message, error) {
 	lengthBytes := make([]byte, 8)
 	_, err := conn.Read(lengthBytes)
 	if err != nil {
@@ -100,7 +101,7 @@ func deserializeMessage(conn io.Reader) (*message, error) {
 	}
 
 	reader := bytes.NewBuffer(msgBytes)
-	msg := &message{}
+	msg := &Message{}
 	dec := gob.NewDecoder(reader)
 
 	err = dec.Decode(msg)

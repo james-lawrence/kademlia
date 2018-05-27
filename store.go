@@ -28,7 +28,7 @@ type store interface {
 }
 
 // NewMemoryStore create a properly initialized memory store.
-func NewMemoryStore() *MemoryStore {
+func NewMemoryStore(dht *DHT) *MemoryStore {
 	return &MemoryStore{
 		data:         make(map[string][]byte),
 		mutex:        &sync.Mutex{},

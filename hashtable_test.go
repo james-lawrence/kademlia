@@ -18,7 +18,7 @@ func TestFindNodeAllBuckets(t *testing.T) {
 	dht.networking = networking
 
 	go func() {
-		dht.Listen()
+		dht.Listen(nil)
 	}()
 
 	var k = 0
@@ -72,7 +72,7 @@ func TestAddNodeTimeout(t *testing.T) {
 	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
-	go dht.Listen()
+	go dht.Listen(nil)
 
 	var (
 		nodesAdded = 1
@@ -136,7 +136,7 @@ func TestAddNodeTimeout(t *testing.T) {
 
 func TestGetRandomIDFromBucket(t *testing.T) {
 	dht := NewDHT(mustNode(getIDWithValues(0), "127.0.0.1:3000"))
-	go dht.Listen()
+	go dht.Listen(nil)
 
 	// Bytes should be equal up to the bucket index that the random ID was
 	// generated for, and random afterwards

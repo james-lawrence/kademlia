@@ -2,12 +2,13 @@ package kademlia
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/willf/bloom"
 )
 
 // Option for a distributed hash table.
@@ -36,7 +37,6 @@ func OptionRefresh(d time.Duration) Option {
 
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
-	store      store
 	ht         *hashTable
 	networking networking
 
@@ -63,7 +63,6 @@ type DHT struct {
 // provided.
 func NewDHT(n NetworkNode, options ...Option) *DHT {
 	dht := &DHT{
-		store:       NewMemoryStore(),
 		ht:          newHashTable(&n),
 		networking:  newNetwork(&n),
 		TExpire:     24 * time.Hour,
@@ -103,42 +102,42 @@ func (dht *DHT) getExpirationTime(key []byte) time.Time {
 	return time.Now().Add(dur)
 }
 
-// Store stores data at the provided key on the network. This will trigger an iterateStore message.
-func (dht *DHT) Store(key, data []byte) (err error) {
-	expiration := dht.getExpirationTime(key)
-	replication := time.Now().Add(dht.TReplicate)
-	dht.store.Store(key, data, replication, expiration, true)
-	_, _, err = dht.iterate(iterateStore, key, data)
-	if err != nil {
-		return err
-	}
+// // Store stores data at the provided key on the network. This will trigger an iterateStore message.
+// func (dht *DHT) Store(key, data []byte) (err error) {
+// 	expiration := dht.getExpirationTime(key)
+// 	replication := time.Now().Add(dht.TReplicate)
+// 	dht.store.Store(key, data, replication, expiration, true)
+// 	_, _, err = dht.iterate(iterateStore, key, data)
+// 	if err != nil {
+// 		return err
+// 	}
+//
+// 	return nil
+// }
 
-	return nil
-}
-
-// Get retrieves data from the networking using key. Key is the base58 encoded
-// identifier of the data.
-func (dht *DHT) Get(key []byte) (data []byte, found bool, err error) {
-	if len(key) != dht.ht.bSize {
-		return nil, false, errors.New("Invalid key")
-	}
-
-	value, exists := dht.store.Retrieve(key)
-
-	if !exists {
-		var err error
-		value, _, err = dht.iterate(iterateFindValue, key, nil)
-		if err != nil {
-			return nil, false, err
-		}
-
-		if value != nil {
-			exists = true
-		}
-	}
-
-	return value, exists, nil
-}
+// // Get retrieves data from the networking using key. Key is the base58 encoded
+// // identifier of the data.
+// func (dht *DHT) Get(key []byte) (data []byte, found bool, err error) {
+// 	if len(key) != dht.ht.bSize {
+// 		return nil, false, errors.New("Invalid key")
+// 	}
+//
+// 	value, exists := dht.store.Retrieve(key)
+//
+// 	if !exists {
+// 		var err error
+// 		value, _, err = dht.iterate(iterateFindValue, key, nil)
+// 		if err != nil {
+// 			return nil, false, err
+// 		}
+//
+// 		if value != nil {
+// 			exists = true
+// 		}
+// 	}
+//
+// 	return value, exists, nil
+// }
 
 // NumNodes returns the total number of nodes stored in the local routing table
 func (dht *DHT) NumNodes() int {
@@ -156,8 +155,8 @@ func (dht *DHT) GetSelf() *NetworkNode {
 }
 
 // Listen begins listening on the socket for incoming messages
-func (dht *DHT) Listen() error {
-	go dht.listen()
+func (dht *DHT) Listen(out chan *Message) error {
+	go dht.listen(out)
 	go dht.timers()
 	return dht.networking.listen()
 }
@@ -172,7 +171,7 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 	expectedResponses := []*expectedResponse{}
 	wg := &sync.WaitGroup{}
 	for _, bn := range nodes {
-		query := &message{}
+		query := &Message{}
 		query.Sender = dht.ht.Self
 		query.Receiver = bn
 		query.Type = messageTypePing
@@ -216,7 +215,8 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 	wg.Wait()
 
 	if dht.NumNodes() > 0 {
-		_, _, err := dht.iterate(iterateFindNode, dht.ht.Self.ID, nil)
+		_, err := dht.Locate(dht.ht.Self.ID)
+		// _, _, err := dht.iterate(iterateFindNode, dht.ht.Self.ID, nil)
 		return err
 	}
 
@@ -229,36 +229,32 @@ func (dht *DHT) Disconnect() error {
 	return dht.networking.disconnect()
 }
 
-// Iterate does an iterative search through the network. This can be done
-// for multiple reasons. These reasons include:
-//     iterativeStore - Used to store new information in the network.
-//     iterativeFindNode - Used to bootstrap the network.
-//     iterativeFindValue - Used to find a value among the network given a key.
-func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closest []*NetworkNode, err error) {
-	sl := dht.ht.getClosestContacts(alpha, target, []*NetworkNode{})
+// Locate does an iterative search through the network based on key.
+// used to locate the nodes to interact with for a given key.
+func (dht *DHT) Locate(key []byte) (closest []*NetworkNode, err error) {
+	var (
+		// According to the Kademlia white paper, after a round of FIND_NODE RPCs
+		// fails to provide a node closer than closestNode, we should send a
+		// FIND_NODE RPC to all remaining nodes in the shortlist that have not
+		// yet been contacted.
+		queryRest bool
+		// We keep track of nodes contacted so far. We don't contact the same node
+		// twice.
+		contacted = bloom.NewWithEstimates(1000, 0.005)
+	)
 
-	// We keep track of nodes contacted so far. We don't contact the same node
-	// twice.
-	var contacted = make(map[string]bool)
-
-	// According to the Kademlia white paper, after a round of FIND_NODE RPCs
-	// fails to provide a node closer than closestNode, we should send a
-	// FIND_NODE RPC to all remaining nodes in the shortlist that have not
-	// yet been contacted.
-	queryRest := false
+	sl := dht.ht.getClosestContacts(alpha, key, []*NetworkNode{})
 
 	// We keep a reference to the closestNode. If after performing a search
 	// we do not find a closer node, we stop searching.
 	if len(sl.Nodes) == 0 {
-		return nil, nil, nil
+		return closest, nil
 	}
 
 	closestNode := sl.Nodes[0]
 
-	if t == iterateFindNode {
-		bucket := getBucketIndexFromDifferingBit(dht.ht.bBits, target, dht.ht.Self.ID)
-		dht.ht.resetRefreshTimeForBucket(bucket)
-	}
+	bucket := getBucketIndexFromDifferingBit(dht.ht.bBits, key, dht.ht.Self.ID)
+	dht.ht.resetRefreshTimeForBucket(bucket)
 
 	removeFromShortlist := []*NetworkNode{}
 
@@ -270,7 +266,6 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 
 		// Next we send messages to the first (closest) alpha nodes in the
 		// shortlist and wait for a response
-
 		for i, node := range sl.Nodes {
 			// Contact only alpha nodes
 			if i >= alpha && !queryRest {
@@ -278,33 +273,17 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 			}
 
 			// Don't contact nodes already contacted
-			if contacted[string(node.ID)] == true {
+			if contacted.TestAndAdd(node.ID) {
 				continue
 			}
 
-			contacted[string(node.ID)] = true
-			query := &message{}
-			query.Sender = dht.ht.Self
-			query.Receiver = node
-
-			switch t {
-			case iterateFindNode:
-				query.Type = messageTypeFindNode
-				queryData := &queryDataFindNode{}
-				queryData.Target = target
-				query.Data = queryData
-			case iterateFindValue:
-				query.Type = messageTypeFindValue
-				queryData := &queryDataFindValue{}
-				queryData.Target = target
-				query.Data = queryData
-			case iterateStore:
-				query.Type = messageTypeFindNode
-				queryData := &queryDataFindNode{}
-				queryData.Target = target
-				query.Data = queryData
-			default:
-				panic("Unknown iterate type")
+			query := &Message{
+				Sender:   dht.ht.Self,
+				Receiver: node,
+				Type:     messageTypeFindNode,
+				Data: &queryDataFindNode{
+					Target: key,
+				},
 			}
 
 			// Send the async queries and wait for a response
@@ -326,7 +305,7 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 
 		numExpectedResponses = len(expectedResponses)
 
-		resultChan := make(chan (*message))
+		resultChan := make(chan (*Message))
 		for _, r := range expectedResponses {
 			go func(r *expectedResponse) {
 				select {
@@ -345,7 +324,7 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 			}(r)
 		}
 
-		var results []*message
+		var results []*Message
 		if numExpectedResponses > 0 {
 		Loop:
 			for {
@@ -371,28 +350,13 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 					sl.RemoveNode(result.Receiver)
 					continue
 				}
-				switch t {
-				case iterateFindNode:
-					responseData := result.Data.(*responseDataFindNode)
-					sl.AppendUniqueNetworkNodes(responseData.Closest)
-				case iterateFindValue:
-					responseData := result.Data.(*responseDataFindValue)
-					// TODO When an iterativeFindValue succeeds, the initiator must
-					// store the key/value pair at the closest node seen which did
-					// not return the value.
-					if responseData.Value != nil {
-						return responseData.Value, nil, nil
-					}
-					sl.AppendUniqueNetworkNodes(responseData.Closest)
-				case iterateStore:
-					responseData := result.Data.(*responseDataFindNode)
-					sl.AppendUniqueNetworkNodes(responseData.Closest)
-				}
+				responseData := result.Data.(*responseDataFindNode)
+				sl.AppendUniqueNetworkNodes(responseData.Closest)
 			}
 		}
 
 		if !queryRest && len(sl.Nodes) == 0 {
-			return nil, nil, nil
+			return closest, nil
 		}
 
 		sort.Sort(sl)
@@ -400,38 +364,220 @@ func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closes
 		// If closestNode is unchanged then we are done
 		if bytes.Compare(sl.Nodes[0].ID, closestNode.ID) == 0 || queryRest {
 			// We are done
-			switch t {
-			case iterateFindNode:
-				if !queryRest {
-					queryRest = true
-					continue
-				}
-				return nil, sl.Nodes, nil
-			case iterateFindValue:
-				return nil, sl.Nodes, nil
-			case iterateStore:
-				for i, n := range sl.Nodes {
-					if i >= dht.ht.bSize {
-						return nil, nil, nil
-					}
-
-					query := &message{
-						Type:     messageTypeStore,
-						Receiver: n,
-						Sender:   dht.ht.Self,
-						Data: &queryDataStore{
-							Data: data,
-						},
-					}
-					dht.networking.sendMessage(query, false, -1)
-				}
-				return nil, nil, nil
+			if !queryRest {
+				queryRest = true
+				continue
 			}
-		} else {
-			closestNode = sl.Nodes[0]
+			return sl.Nodes, nil
 		}
+
+		closestNode = sl.Nodes[0]
 	}
 }
+
+// // Iterate does an iterative search through the network. This can be done
+// // for multiple reasons. These reasons include:
+// //     iterativeStore - Used to store new information in the network.
+// //     iterativeFindNode - Used to bootstrap the network.
+// //     iterativeFindValue - Used to find a value among the network given a key.
+// func (dht *DHT) iterate(t int, target []byte, data []byte) (value []byte, closest []*NetworkNode, err error) {
+// 	sl := dht.ht.getClosestContacts(alpha, target, []*NetworkNode{})
+//
+// 	// We keep track of nodes contacted so far. We don't contact the same node
+// 	// twice.
+// 	var contacted = make(map[string]bool)
+//
+// 	// According to the Kademlia white paper, after a round of FIND_NODE RPCs
+// 	// fails to provide a node closer than closestNode, we should send a
+// 	// FIND_NODE RPC to all remaining nodes in the shortlist that have not
+// 	// yet been contacted.
+// 	queryRest := false
+//
+// 	// We keep a reference to the closestNode. If after performing a search
+// 	// we do not find a closer node, we stop searching.
+// 	if len(sl.Nodes) == 0 {
+// 		return nil, nil, nil
+// 	}
+//
+// 	closestNode := sl.Nodes[0]
+//
+// 	if t == iterateFindNode {
+// 		bucket := getBucketIndexFromDifferingBit(dht.ht.bBits, target, dht.ht.Self.ID)
+// 		dht.ht.resetRefreshTimeForBucket(bucket)
+// 	}
+//
+// 	removeFromShortlist := []*NetworkNode{}
+//
+// 	for {
+// 		var (
+// 			numExpectedResponses int
+// 		)
+// 		expectedResponses := []*expectedResponse{}
+//
+// 		// Next we send messages to the first (closest) alpha nodes in the
+// 		// shortlist and wait for a response
+//
+// 		for i, node := range sl.Nodes {
+// 			// Contact only alpha nodes
+// 			if i >= alpha && !queryRest {
+// 				break
+// 			}
+//
+// 			// Don't contact nodes already contacted
+// 			if contacted[string(node.ID)] == true {
+// 				continue
+// 			}
+//
+// 			contacted[string(node.ID)] = true
+// 			query := &message{}
+// 			query.Sender = dht.ht.Self
+// 			query.Receiver = node
+//
+// 			switch t {
+// 			case iterateFindNode:
+// 				query.Type = messageTypeFindNode
+// 				queryData := &queryDataFindNode{}
+// 				queryData.Target = target
+// 				query.Data = queryData
+// 			case iterateFindValue:
+// 				query.Type = messageTypeFindValue
+// 				queryData := &queryDataFindValue{}
+// 				queryData.Target = target
+// 				query.Data = queryData
+// 			case iterateStore:
+// 				query.Type = messageTypeFindNode
+// 				queryData := &queryDataFindNode{}
+// 				queryData.Target = target
+// 				query.Data = queryData
+// 			default:
+// 				panic("Unknown iterate type")
+// 			}
+//
+// 			// Send the async queries and wait for a response
+// 			res, err := dht.networking.sendMessage(query, true, -1)
+// 			if err != nil {
+// 				// Node was unreachable for some reason. We will have to remove
+// 				// it from the shortlist, but we will keep it in our routing
+// 				// table in hopes that it might come back online in the future.
+// 				removeFromShortlist = append(removeFromShortlist, query.Receiver)
+// 				continue
+// 			}
+//
+// 			expectedResponses = append(expectedResponses, res)
+// 		}
+//
+// 		for _, n := range removeFromShortlist {
+// 			sl.RemoveNode(n)
+// 		}
+//
+// 		numExpectedResponses = len(expectedResponses)
+//
+// 		resultChan := make(chan (*message))
+// 		for _, r := range expectedResponses {
+// 			go func(r *expectedResponse) {
+// 				select {
+// 				case result := <-r.ch:
+// 					if result == nil {
+// 						// Channel was closed
+// 						return
+// 					}
+// 					dht.addNode(newNode(result.Sender))
+// 					resultChan <- result
+// 					return
+// 				case <-time.After(dht.TMsgTimeout):
+// 					dht.networking.cancelResponse(r)
+// 					return
+// 				}
+// 			}(r)
+// 		}
+//
+// 		var results []*message
+// 		if numExpectedResponses > 0 {
+// 		Loop:
+// 			for {
+// 				select {
+// 				case result := <-resultChan:
+// 					if result != nil {
+// 						results = append(results, result)
+// 					} else {
+// 						numExpectedResponses--
+// 					}
+// 					if len(results) == numExpectedResponses {
+// 						close(resultChan)
+// 						break Loop
+// 					}
+// 				case <-time.After(dht.TMsgTimeout):
+// 					close(resultChan)
+// 					break Loop
+// 				}
+// 			}
+//
+// 			for _, result := range results {
+// 				if result.Error != nil {
+// 					sl.RemoveNode(result.Receiver)
+// 					continue
+// 				}
+// 				switch t {
+// 				case iterateFindNode:
+// 					responseData := result.Data.(*responseDataFindNode)
+// 					sl.AppendUniqueNetworkNodes(responseData.Closest)
+// 				case iterateFindValue:
+// 					responseData := result.Data.(*responseDataFindValue)
+// 					// TODO When an iterativeFindValue succeeds, the initiator must
+// 					// store the key/value pair at the closest node seen which did
+// 					// not return the value.
+// 					if responseData.Value != nil {
+// 						return responseData.Value, nil, nil
+// 					}
+// 					sl.AppendUniqueNetworkNodes(responseData.Closest)
+// 				case iterateStore:
+// 					responseData := result.Data.(*responseDataFindNode)
+// 					sl.AppendUniqueNetworkNodes(responseData.Closest)
+// 				}
+// 			}
+// 		}
+//
+// 		if !queryRest && len(sl.Nodes) == 0 {
+// 			return nil, nil, nil
+// 		}
+//
+// 		sort.Sort(sl)
+//
+// 		// If closestNode is unchanged then we are done
+// 		if bytes.Compare(sl.Nodes[0].ID, closestNode.ID) == 0 || queryRest {
+// 			// We are done
+// 			switch t {
+// 			case iterateFindNode:
+// 				if !queryRest {
+// 					queryRest = true
+// 					continue
+// 				}
+// 				return nil, sl.Nodes, nil
+// 			case iterateFindValue:
+// 				return nil, sl.Nodes, nil
+// 			case iterateStore:
+// 				for i, n := range sl.Nodes {
+// 					if i >= dht.ht.bSize {
+// 						return nil, nil, nil
+// 					}
+//
+// 					query := &message{
+// 						Type:     messageTypeStore,
+// 						Receiver: n,
+// 						Sender:   dht.ht.Self,
+// 						Data: &queryDataStore{
+// 							Data: data,
+// 						},
+// 					}
+// 					dht.networking.sendMessage(query, false, -1)
+// 				}
+// 				return nil, nil, nil
+// 			}
+// 		} else {
+// 			closestNode = sl.Nodes[0]
+// 		}
+// 	}
+// }
 
 // addNode adds a node into the appropriate k bucket
 // we store these buckets in big-endian order so we look at the bits
@@ -456,7 +602,7 @@ func (dht *DHT) addNode(node *node) {
 		// if it responds back in a reasonable amount of time. If not -
 		// we may remove it
 		n := bucket[0].NetworkNode
-		query := &message{}
+		query := &Message{}
 		query.Receiver = n
 		query.Sender = dht.ht.Self
 		query.Type = messageTypePing
@@ -489,19 +635,10 @@ func (dht *DHT) timers() {
 			for i := 0; i < dht.ht.bBits; i++ {
 				if time.Since(dht.ht.getRefreshTimeForBucket(i)) > dht.TRefresh {
 					id := dht.ht.getRandomIDFromBucket(dht.ht.bSize)
-					dht.iterate(iterateFindNode, id, nil)
+					dht.Locate(id)
+					// dht.iterate(iterateFindNode, id, nil)
 				}
 			}
-
-			// Replication
-			keys := dht.store.GetAllKeysForReplication()
-			for _, key := range keys {
-				value, _ := dht.store.Retrieve(key)
-				dht.iterate(iterateStore, key, value)
-			}
-
-			// Expiration
-			dht.store.ExpireKeys()
 		case <-dht.networking.getDisconnect():
 			t.Stop()
 			dht.networking.timersFin()
@@ -510,7 +647,17 @@ func (dht *DHT) timers() {
 	}
 }
 
-func (dht *DHT) listen() {
+func (dht *DHT) listen(out chan *Message) {
+	defer func() {
+		select {
+		case <-out:
+		default:
+			if out != nil {
+				close(out)
+			}
+		}
+	}()
+
 	for {
 		select {
 		case msg := <-dht.networking.getMessage():
@@ -524,44 +671,31 @@ func (dht *DHT) listen() {
 			case messageTypeFindNode:
 				data := msg.Data.(*queryDataFindNode)
 				closest := dht.ht.getClosestContacts(dht.ht.bSize, data.Target, []*NetworkNode{msg.Sender})
-				response := &message{IsResponse: true}
-				response.Sender = dht.ht.Self
-				response.Receiver = msg.Sender
-				response.Type = messageTypeFindNode
-				responseData := &responseDataFindNode{}
-				responseData.Closest = closest.Nodes
-				response.Data = responseData
-				dht.networking.sendMessage(response, false, msg.ID)
-			case messageTypeFindValue:
-				data := msg.Data.(*queryDataFindValue)
-				value, exists := dht.store.Retrieve(data.Target)
-				response := &message{IsResponse: true}
-				response.ID = msg.ID
-				response.Receiver = msg.Sender
-				response.Sender = dht.ht.Self
-				response.Type = messageTypeFindValue
-				responseData := &responseDataFindValue{}
-				if exists {
-					responseData.Value = value
-				} else {
-					closest := dht.ht.getClosestContacts(dht.ht.bSize, data.Target, []*NetworkNode{msg.Sender})
-					responseData.Closest = closest.Nodes
+				response := &Message{
+					Type:     messageTypeFindNode,
+					Sender:   dht.ht.Self,
+					Receiver: msg.Sender,
+					Data: &responseDataFindNode{
+						Closest: closest.Nodes,
+					},
+					IsResponse: true,
 				}
-				response.Data = responseData
 				dht.networking.sendMessage(response, false, msg.ID)
-			case messageTypeStore:
-				data := msg.Data.(*queryDataStore)
-				expiration := dht.getExpirationTime(data.Key)
-				replication := time.Now().Add(dht.TReplicate)
-				dht.store.Store(data.Key, data.Data, replication, expiration, false)
 			case messageTypePing:
-				response := &message{IsResponse: true}
-				response.Sender = dht.ht.Self
-				response.Receiver = msg.Sender
-				response.Type = messageTypePing
+				response := &Message{
+					Type:       messageTypePing,
+					Sender:     dht.ht.Self,
+					Receiver:   msg.Sender,
+					IsResponse: true,
+				}
 				dht.networking.sendMessage(response, false, msg.ID)
 				// not interested in adding nodes due to a ping.
 				continue
+			default:
+				select {
+				case out <- msg:
+				default:
+				}
 			}
 
 			dht.addNode(newNode(msg.Sender))
