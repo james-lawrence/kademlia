@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/willf/bloom"
 )
 
@@ -238,9 +237,6 @@ func (dht *DHT) Disconnect() error {
 
 // Send invoke an RPC call.
 func (dht *DHT) Send(m Message) (Message, error) {
-	details := spew.Sdump(m)
-	log.Println("sending", details, dht.ht.Self.IP, dht.ht.Self.Port)
-
 	MessageOptionSender(dht.ht.Self)(&m)
 
 	// Send the async queries and wait for a response
@@ -253,10 +249,8 @@ func (dht *DHT) Send(m Message) (Message, error) {
 		return m, err
 	}
 
-	log.Println("sent", details, res.id, dht.ht.Self.IP, dht.ht.Self.Port)
 	select {
 	case rmsg := <-res.ch:
-		log.Println("received response", details, res.id, dht.ht.Self.IP, dht.ht.Self.Port)
 		return *rmsg, nil
 	case <-time.After(15 * time.Second):
 		return Message{}, errors.New("timeout")
