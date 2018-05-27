@@ -44,6 +44,7 @@ func newNetwork(n *NetworkNode) *realNetworking {
 		dcEndChan:     make(chan int),
 		dcTimersChan:  make(chan int),
 		dcMessageChan: make(chan int),
+		msgCounter:    new(int64),
 		responseMap:   make(map[int64]*expectedResponse),
 		aliveConns:    &sync.WaitGroup{},
 		connected:     n.socket != nil,
@@ -59,11 +60,10 @@ type realNetworking struct {
 	dcMessageChan chan int
 	mutex         *sync.Mutex
 	connected     bool
-	// initialized   bool
 	responseMap   map[int64]*expectedResponse
 	aliveConns    *sync.WaitGroup
 	self          *NetworkNode
-	msgCounter    int64
+	msgCounter    *int64
 	remoteAddress string
 }
 
@@ -93,7 +93,7 @@ func (rn *realNetworking) timersFin() {
 
 func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int64) (*expectedResponse, error) {
 	if id == -1 {
-		id = atomic.AddInt64(&rn.msgCounter, 1)
+		id = atomic.AddInt64(rn.msgCounter, 1)
 	}
 	msg.ID = id
 
