@@ -92,10 +92,9 @@ func (rn *realNetworking) timersFin() {
 }
 
 func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int64) (*expectedResponse, error) {
-	if id == -1 {
-		id = atomic.AddInt64(rn.msgCounter, 1)
+	if id <= 0 {
+		msg.ID = atomic.AddInt64(rn.msgCounter, 1)
 	}
-	msg.ID = id
 
 	deadline, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -121,11 +120,11 @@ func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int6
 			ch:    make(chan *Message),
 			node:  msg.Receiver,
 			query: msg,
-			id:    id,
+			id:    msg.ID,
 		}
 		// TODO we need a way to automatically clean these up as there are
 		// cases where they won't be removed manually
-		rn.responseMap[id] = expectedResponse
+		rn.responseMap[msg.ID] = expectedResponse
 		return expectedResponse, nil
 	}
 

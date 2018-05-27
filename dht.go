@@ -244,7 +244,7 @@ func (dht *DHT) Send(m Message) (Message, error) {
 	MessageOptionSender(dht.ht.Self)(&m)
 
 	// Send the async queries and wait for a response
-	res, err := dht.networking.sendMessage(&m, true, -1)
+	res, err := dht.networking.sendMessage(&m, !m.IsResponse, m.ID)
 	if err != nil {
 		return Message{}, err
 	}
@@ -253,7 +253,7 @@ func (dht *DHT) Send(m Message) (Message, error) {
 		return m, err
 	}
 
-	log.Println("sent", details, m.ID, dht.ht.Self.IP, dht.ht.Self.Port)
+	log.Println("sent", details, res.id, dht.ht.Self.IP, dht.ht.Self.Port)
 	select {
 	case rmsg := <-res.ch:
 		log.Println("received response", details, res.id, dht.ht.Self.IP, dht.ht.Self.Port)
@@ -274,7 +274,7 @@ func (dht *DHT) Locate(key []byte) (closest []*NetworkNode, err error) {
 		queryRest bool
 		// We keep track of nodes contacted so far. We don't contact the same node
 		// twice.
-		contacted = bloom.NewWithEstimates(1000, 0.005)
+		contacted = bloom.NewWithEstimates(1000, 0.0005)
 	)
 
 	sl := dht.ht.getClosestContacts(alpha, key, []*NetworkNode{})
@@ -725,7 +725,7 @@ func (dht *DHT) listen(out chan *Message) {
 				}
 				dht.networking.sendMessage(response, false, msg.ID)
 				// not interested in adding nodes due to a ping.
-				// continue
+				continue
 			default:
 				select {
 				case out <- msg:
