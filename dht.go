@@ -224,7 +224,6 @@ func (dht *DHT) Bootstrap(nodes ...*NetworkNode) error {
 
 	if dht.NumNodes() > 0 {
 		_, err := dht.Locate(dht.ht.Self.ID)
-		// _, _, err := dht.iterate(iterateFindNode, dht.ht.Self.ID, nil)
 		return err
 	}
 
@@ -726,7 +725,7 @@ func (dht *DHT) listen(out chan *Message) {
 				}
 				dht.networking.sendMessage(response, false, msg.ID)
 				// not interested in adding nodes due to a ping.
-				continue
+				// continue
 			default:
 				select {
 				case out <- msg:
