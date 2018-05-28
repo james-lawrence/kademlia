@@ -23,8 +23,10 @@ func init() {
 	gob.Register(&responseDataStore{})
 }
 
+// MessageOption ...
 type MessageOption func(*Message)
 
+// MessageOptionSender ...
 func MessageOptionSender(n *NetworkNode) MessageOption {
 	return func(m *Message) {
 		m.Sender = n
@@ -36,7 +38,6 @@ type Message struct {
 	Sender     *NetworkNode
 	Receiver   *NetworkNode
 	ID         int64
-	Error      error
 	Type       int
 	IsResponse bool
 	Data       interface{}

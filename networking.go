@@ -3,12 +3,14 @@ package kademlia
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/james-lawrence/kademlia/protocol"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -17,11 +19,12 @@ var (
 
 type networking interface {
 	sendMessage(*Message, bool, int64) (*expectedResponse, error)
-	getMessage() chan (*Message)
-	messagesFin()
+	ping(ctx context.Context, to *NetworkNode) (*NetworkNode, error)
+	probe(ctx context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error)
+	getMessage() chan *Message
 	timersFin()
 	getDisconnect() chan int
-	listen() error
+	listen(s *grpc.Server) error
 	disconnect() error
 	cancelResponse(*expectedResponse)
 	getNetworkAddr() string
@@ -36,18 +39,17 @@ type expectedResponse struct {
 
 func newNetwork(n *NetworkNode) *realNetworking {
 	return &realNetworking{
-		self:          n,
-		mutex:         &sync.Mutex{},
-		sendChan:      make(chan *Message),
-		recvChan:      make(chan *Message),
-		dcStartChan:   make(chan int, 10),
-		dcEndChan:     make(chan int),
-		dcTimersChan:  make(chan int),
-		dcMessageChan: make(chan int),
-		msgCounter:    new(int64),
-		responseMap:   make(map[int64]*expectedResponse),
-		aliveConns:    &sync.WaitGroup{},
-		connected:     n.socket != nil,
+		self:         n,
+		mutex:        &sync.Mutex{},
+		sendChan:     make(chan *Message),
+		recvChan:     make(chan *Message),
+		dcStartChan:  make(chan int, 10),
+		dcEndChan:    make(chan int),
+		dcTimersChan: make(chan int),
+		msgCounter:   new(int64),
+		responseMap:  make(map[int64]*expectedResponse),
+		aliveConns:   &sync.WaitGroup{},
+		connected:    n.socket != nil,
 	}
 }
 
@@ -57,7 +59,6 @@ type realNetworking struct {
 	dcStartChan   chan int
 	dcEndChan     chan int
 	dcTimersChan  chan int
-	dcMessageChan chan int
 	mutex         *sync.Mutex
 	connected     bool
 	responseMap   map[int64]*expectedResponse
@@ -75,16 +76,52 @@ func (rn *realNetworking) getNetworkAddr() string {
 	return rn.remoteAddress
 }
 
-func (rn *realNetworking) messagesFin() {
-	rn.dcMessageChan <- 1
-}
-
 func (rn *realNetworking) getDisconnect() chan int {
 	return rn.dcStartChan
 }
 
 func (rn *realNetworking) timersFin() {
 	rn.dcTimersChan <- 1
+}
+
+func (rn *realNetworking) getConn(to *NetworkNode) (*grpc.ClientConn, error) {
+	dst := net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port))
+	return grpc.Dial(dst, grpc.WithInsecure(), grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+		deadline, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return rn.self.socket.DialContext(deadline, "", dst)
+	}))
+}
+
+func (rn *realNetworking) ping(deadline context.Context, to *NetworkNode) (*NetworkNode, error) {
+	conn, err := rn.getConn(to)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	resp, err := protocol.NewKademliaClient(conn).Ping(deadline, &protocol.PingRequest{
+		Sender:   fromNetworkNode(rn.self),
+		Receiver: fromNetworkNode(to),
+	})
+
+	return toNetworkNode(resp.Sender), err
+}
+
+func (rn *realNetworking) probe(deadline context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error) {
+	conn, err := rn.getConn(to)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	resp, err := protocol.NewKademliaClient(conn).Probe(deadline, &protocol.ProbeRequest{
+		Sender:   fromNetworkNode(rn.self),
+		Receiver: fromNetworkNode(to),
+		Key:      key,
+	})
+
+	return toNetworkNodes(resp.Nearest...), err
 }
 
 func (rn *realNetworking) sendMessage(msg *Message, expectResponse bool, id int64) (*expectedResponse, error) {
@@ -144,113 +181,15 @@ func (rn *realNetworking) disconnect() error {
 	rn.dcStartChan <- 1
 	rn.dcStartChan <- 1
 	<-rn.dcTimersChan
-	<-rn.dcMessageChan
 	close(rn.sendChan)
 	close(rn.recvChan)
 	close(rn.dcTimersChan)
-	close(rn.dcMessageChan)
 	err := rn.self.socket.CloseNow()
 	rn.connected = false
 	close(rn.dcEndChan)
 	return err
 }
 
-func (rn *realNetworking) listen() error {
-	for {
-		conn, err := rn.self.socket.Accept()
-		if err != nil {
-			rn.disconnect()
-			<-rn.dcEndChan
-			return err
-		}
-
-		go func(conn net.Conn) {
-			for {
-				// Wait for messages
-				msg, err := deserializeMessage(conn)
-				if err != nil {
-					if err.Error() == "EOF" {
-						// Node went bye bye
-					}
-					// TODO should we penalize this node somehow ? Ban it ?
-					return
-				}
-
-				isPing := msg.Type == messageTypePing
-
-				if !areNodesEqual(msg.Receiver, rn.self, isPing) {
-					// TODO should we penalize this node somehow ? Ban it ?
-					continue
-				}
-
-				if msg.ID < 0 {
-					// TODO should we penalize this node somehow ? Ban it ?
-					continue
-				}
-
-				rn.mutex.Lock()
-				if rn.connected {
-					if msg.IsResponse {
-						if rn.responseMap[msg.ID] == nil {
-							// We were not expecting this response
-							rn.mutex.Unlock()
-							continue
-						}
-
-						if !areNodesEqual(rn.responseMap[msg.ID].node, msg.Sender, isPing) {
-							// TODO should we penalize this node somehow ? Ban it ?
-							rn.mutex.Unlock()
-							continue
-						}
-
-						if msg.Type != rn.responseMap[msg.ID].query.Type {
-							close(rn.responseMap[msg.ID].ch)
-							delete(rn.responseMap, msg.ID)
-							rn.mutex.Unlock()
-							continue
-						}
-
-						if !msg.IsResponse {
-							close(rn.responseMap[msg.ID].ch)
-							delete(rn.responseMap, msg.ID)
-							rn.mutex.Unlock()
-							continue
-						}
-
-						resChan := rn.responseMap[msg.ID].ch
-						rn.mutex.Unlock()
-						resChan <- msg
-						rn.mutex.Lock()
-						close(rn.responseMap[msg.ID].ch)
-						delete(rn.responseMap, msg.ID)
-						rn.mutex.Unlock()
-					} else {
-						var (
-							assertion bool
-						)
-
-						switch msg.Type {
-						case messageTypeFindNode:
-							_, assertion = msg.Data.(*queryDataFindNode)
-						default:
-							assertion = true
-						}
-
-						if !assertion {
-							log.Printf("Received bad message %v from %+v", msg.Type, msg.Sender)
-							close(rn.responseMap[msg.ID].ch)
-							delete(rn.responseMap, msg.ID)
-							rn.mutex.Unlock()
-							continue
-						}
-
-						rn.recvChan <- msg
-						rn.mutex.Unlock()
-					}
-				} else {
-					rn.mutex.Unlock()
-				}
-			}
-		}(conn)
-	}
+func (rn *realNetworking) listen(s *grpc.Server) error {
+	return s.Serve(rn.self.socket)
 }

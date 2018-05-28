@@ -52,7 +52,7 @@ func NewStunNode(id []byte, addr, stunAddr string) (n NetworkNode, err error) {
 	}
 
 	c := stun.NewClientWithConnection(n.socket)
-	c.SetServerAddr(addr)
+	c.SetServerAddr(stunAddr)
 
 	_, h, err := c.Discover()
 	if err != nil {
@@ -125,7 +125,7 @@ func (n *shortList) RemoveNode(node *NetworkNode) {
 	}
 }
 
-func (n *shortList) AppendUniqueNetworkNodes(nodes []*NetworkNode) {
+func (n *shortList) AppendUniqueNetworkNodes(nodes ...*NetworkNode) {
 	for _, vv := range nodes {
 		exists := false
 		for _, v := range n.Nodes {

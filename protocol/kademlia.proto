@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package protocol;
+
+message Node {
+	// ID is a 20 byte unique identifier
+	bytes ID = 1;
+  // IP is the public address IP of the node
+  string IP = 2;
+  // Port is the public port of the node
+  int32 Port = 3;
+}
+
+message PingRequest {
+  Node Sender = 1;
+  Node Receiver = 2;
+}
+
+message PingResponse {
+  Node Sender = 1;
+  Node Receiver = 2;
+}
+
+message ProbeRequest {
+  Node Sender = 1;
+  Node Receiver = 2;
+  bytes Key = 3;
+}
+
+message ProbeResponse {
+  Node Sender = 1;
+  Node Receiver = 2;
+  bytes Key = 3;
+  repeated Node nearest = 4;
+}
+
+service kademlia {
+  rpc Ping(PingRequest) returns (PingResponse) {}
+  rpc Probe(ProbeRequest) returns (ProbeResponse) {}
+}

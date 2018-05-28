@@ -110,7 +110,7 @@ func (ht *hashTable) doesNodeExistInBucket(bucket int, node []byte) bool {
 	return false
 }
 
-func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes []*NetworkNode) *shortList {
+func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes ...*NetworkNode) *shortList {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 	// First we need to build the list of adjacent indices to our target
