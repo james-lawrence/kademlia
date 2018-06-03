@@ -80,8 +80,8 @@ func (rn *realNetworking) ping(deadline context.Context, to *NetworkNode) (*Netw
 	defer conn.Close()
 
 	resp, err := protocol.NewKademliaClient(conn).Ping(deadline, &protocol.PingRequest{
-		Sender:   fromNetworkNode(rn.self),
-		Receiver: fromNetworkNode(to),
+		Sender:   FromNetworkNode(rn.self),
+		Receiver: FromNetworkNode(to),
 	})
 
 	if err != nil {
@@ -99,8 +99,8 @@ func (rn *realNetworking) probe(deadline context.Context, key []byte, to *Networ
 	defer conn.Close()
 
 	resp, err := protocol.NewKademliaClient(conn).Probe(deadline, &protocol.ProbeRequest{
-		Sender:   fromNetworkNode(rn.self),
-		Receiver: fromNetworkNode(to),
+		Sender:   FromNetworkNode(rn.self),
+		Receiver: FromNetworkNode(to),
 		Key:      key,
 	})
 

@@ -21,7 +21,7 @@ type server struct {
 
 func (t server) Ping(ctx context.Context, req *protocol.PingRequest) (*protocol.PingResponse, error) {
 	return &protocol.PingResponse{
-		Sender:   fromNetworkNode(t.ht.Self),
+		Sender:   FromNetworkNode(t.ht.Self),
 		Receiver: req.Sender,
 	}, nil
 }
@@ -31,10 +31,10 @@ func (t server) Probe(ctx context.Context, req *protocol.ProbeRequest) (*protoco
 
 	nearest := t.DHT.ht.getClosestContacts(t.ht.bSize, req.Key, toNetworkNode(req.Sender))
 	return &protocol.ProbeResponse{
-		Sender:   fromNetworkNode(t.ht.Self),
+		Sender:   FromNetworkNode(t.ht.Self),
 		Receiver: req.Sender,
 		Key:      req.Key,
-		Nearest:  fromNetworkNodes(nearest.Nodes...),
+		Nearest:  FromNetworkNodes(nearest.Nodes...),
 	}, nil
 }
 
@@ -46,7 +46,7 @@ func toNetworkNode(n *protocol.Node) *NetworkNode {
 	}
 }
 
-func fromNetworkNode(n *NetworkNode) *protocol.Node {
+func FromNetworkNode(n *NetworkNode) *protocol.Node {
 	return &protocol.Node{
 		ID:   n.ID,
 		IP:   n.IP.String(),
@@ -62,7 +62,7 @@ func toNetworkNodes(ns ...*protocol.Node) (out []*NetworkNode) {
 	return out
 }
 
-func fromNetworkNodes(ns ...*NetworkNode) (out []*protocol.Node) {
+func FromNetworkNodes(ns ...*NetworkNode) (out []*protocol.Node) {
 	out = make([]*protocol.Node, 0, len(ns))
 	for _, n := range ns {
 		out = append(out, &protocol.Node{
