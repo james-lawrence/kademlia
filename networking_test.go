@@ -10,21 +10,20 @@ import (
 
 func newMockNetworking() *mockNetworking {
 	return &mockNetworking{
-		recv:         make(chan *Message),
-		send:         make(chan *Message),
-		msgChan:      make(chan *Message),
+		pings:        make(chan *NetworkNode),
+		probes:       make(chan []*NetworkNode),
+		fail:         make(chan error),
 		dcTimersChan: make(chan int),
 		dc:           make(chan int),
 	}
 }
 
 type mockNetworking struct {
-	recv         chan (*Message)
-	send         chan (*Message)
-	dc           chan (int)
-	dcTimersChan chan (int)
-	msgChan      chan (*Message)
-	failNext     bool
+	probes       chan []*NetworkNode
+	pings        chan *NetworkNode
+	fail         chan error
+	dc           chan int
+	dcTimersChan chan int
 	msgCounter   int64
 }
 
@@ -39,9 +38,6 @@ func (net *mockNetworking) getNetworkAddr() string {
 func (net *mockNetworking) disconnect() error {
 	close(net.dc)
 	<-net.dcTimersChan
-	close(net.recv)
-	close(net.send)
-	close(net.msgChan)
 	return nil
 }
 
@@ -52,32 +48,30 @@ func (net *mockNetworking) createSocket(host net.IP, port string, useStun bool, 
 func (net *mockNetworking) cancelResponse(*expectedResponse) {
 }
 
-func (net *mockNetworking) ping(ctx context.Context, to *NetworkNode) (*NetworkNode, error) {
-	if net.failNext {
-		net.failNext = false
-		return nil, errors.New("MockNetworking Error")
+func (net *mockNetworking) ping(deadline context.Context, to *NetworkNode) (*NetworkNode, error) {
+	// log.Println("PING RECEIVED")
+	// defer log.Println("PING COMPLETED")
+	select {
+	case <-deadline.Done():
+		return nil, deadline.Err()
+	case err := <-net.fail:
+		return nil, err
+	case from := <-net.pings:
+		return from, nil
 	}
-
-	net.recv <- &Message{}
-
-	return to, nil
 }
 
 func (net *mockNetworking) probe(deadline context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error) {
-	if net.failNext {
-		net.failNext = false
-		return []*NetworkNode{}, errors.New("MockNetworking Error")
+	// log.Println("PROBE RECEIVED", net.probes)
+	// defer log.Println("PROBE COMPLETED")
+	select {
+	case <-deadline.Done():
+		return []*NetworkNode{}, deadline.Err()
+	case closest := <-net.probes:
+		return closest, nil
+	case err := <-net.fail:
+		return []*NetworkNode{}, err
 	}
-	net.recv <- &Message{}
-	return []*NetworkNode{}, nil
-}
-
-func (net *mockNetworking) init() {
-	net.recv = make(chan (*Message))
-	net.send = make(chan (*Message))
-	net.msgChan = make(chan (*Message))
-	net.dcTimersChan = make(chan (int))
-	net.dc = make(chan (int))
 }
 
 func (net *mockNetworking) timersFin() {
@@ -88,59 +82,8 @@ func (net *mockNetworking) getDisconnect() chan (int) {
 	return net.dc
 }
 
-func (net *mockNetworking) getMessage() chan (*Message) {
-	return net.msgChan
+func mockFindNodeResponse(nextID []byte) []*NetworkNode {
+	return []*NetworkNode{{IP: net.ParseIP("0.0.0.0"), Port: 3001, ID: nextID}}
 }
 
-func (net *mockNetworking) failNextSendMessage() {
-	net.failNext = true
-}
-
-func (net *mockNetworking) sendMessage(q *Message, expectResponse bool, id int64) (*expectedResponse, error) {
-	if id == 0 {
-		id = net.msgCounter
-		net.msgCounter++
-	}
-	if net.failNext {
-		net.failNext = false
-		return nil, errors.New("MockNetworking Error")
-	}
-	net.recv <- q
-
-	if expectResponse {
-		return &expectedResponse{ch: net.send, query: q, node: q.Receiver, id: id}, nil
-	}
-	return nil, nil
-}
-
-func mockFindNodeResponse(query *Message, nextID []byte) *Message {
-	r := &Message{}
-	// n := &NetworkNode{}
-	// n.ID = query.Sender.ID
-	// n.IP = query.Sender.IP
-	// n.Port = query.Sender.Port
-	// r.Receiver = n
-	// r.Sender = &NetworkNode{ID: query.Receiver.ID, IP: net.ParseIP("0.0.0.0"), Port: 3001}
-	// r.Type = query.Type
-	// r.IsResponse = true
-	// responseData := &responseDataFindNode{}
-	// responseData.Closest = []*NetworkNode{{IP: net.ParseIP("0.0.0.0"), Port: 3001, ID: nextID}}
-	// r.Data = responseData
-	return r
-}
-
-func mockFindNodeResponseEmpty(query *Message) *Message {
-	r := &Message{}
-	n := &NetworkNode{}
-	n.ID = query.Sender.ID
-	n.IP = query.Sender.IP
-	n.Port = query.Sender.Port
-	r.Receiver = n
-	r.Sender = &NetworkNode{ID: query.Receiver.ID, IP: net.ParseIP("0.0.0.0"), Port: 3001}
-	r.Type = query.Type
-	r.IsResponse = true
-	responseData := &responseDataFindNode{}
-	responseData.Closest = []*NetworkNode{}
-	r.Data = responseData
-	return r
-}
+var ErrMockNetworking = errors.New("MockNetworking Error")

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"log"
-	"math"
 	"sort"
 	"time"
 
@@ -17,17 +16,10 @@ import (
 // Option for a distributed hash table.
 type Option func(*DHT)
 
-// OptionExpire see DHT.TExpire
-func OptionExpire(d time.Duration) Option {
+// OptionTimeout - timeout to wait beforing timing out when locating a key.
+func OptionTimeout(d time.Duration) Option {
 	return func(dht *DHT) {
-		dht.TExpire = d
-	}
-}
-
-// OptionReplicate see DHT.TReplicate
-func OptionReplicate(d time.Duration) Option {
-	return func(dht *DHT) {
-		dht.TReplicate = d
+		dht.TLocateTimeout = d
 	}
 }
 
@@ -43,36 +35,26 @@ type DHT struct {
 	ht         *hashTable
 	networking networking
 
-	// time after which a key/value pair expires;
-	// this is a time-to-live (TTL) from the original publication date
-	TExpire time.Duration
-
 	// Seconds after which an otherwise unaccessed bucket must be refreshed
 	TRefresh time.Duration
-
-	// The interval between Kademlia replication events, when a node is
-	// required to publish its entire database
-	TReplicate time.Duration
 
 	// The maximum time to wait for a response from a node before discarding
 	// it from the bucket
 	TPingMax time.Duration
 
-	// The maximum time to wait for a response to any message
-	TMsgTimeout time.Duration
+	// The maximum time to wait to locate a key before timing out.
+	TLocateTimeout time.Duration
 }
 
 // NewDHT initializes a new DHT node. A store and options struct must be
 // provided.
 func NewDHT(n NetworkNode, options ...Option) *DHT {
 	dht := &DHT{
-		ht:          newHashTable(&n),
-		networking:  newNetwork(&n),
-		TExpire:     24 * time.Hour,
-		TRefresh:    time.Hour,
-		TReplicate:  time.Hour,
-		TPingMax:    time.Second,
-		TMsgTimeout: 5 * time.Second,
+		ht:             newHashTable(&n),
+		networking:     newNetwork(&n),
+		TRefresh:       time.Hour,
+		TPingMax:       time.Second,
+		TLocateTimeout: 5 * time.Second,
 	}
 
 	for _, opt := range options {
@@ -80,29 +62,6 @@ func NewDHT(n NetworkNode, options ...Option) *DHT {
 	}
 
 	return dht
-}
-
-func (dht *DHT) getExpirationTime(key []byte) time.Time {
-	bucket := getBucketIndexFromDifferingBit(dht.ht.bBits, key, dht.ht.Self.ID)
-	var total int
-	for i := 0; i < bucket; i++ {
-		total += dht.ht.getTotalNodesInBucket(i)
-	}
-	closer := dht.ht.getAllNodesInBucketCloserThan(bucket, key)
-	score := total + len(closer)
-
-	if score == 0 {
-		score = 1
-	}
-
-	if score > dht.ht.bSize {
-		return time.Now().Add(dht.TExpire)
-	}
-
-	day := dht.TExpire
-	seconds := day.Nanoseconds() * int64(math.Exp(float64(dht.ht.bSize/score)))
-	dur := time.Second * time.Duration(seconds)
-	return time.Now().Add(dur)
 }
 
 // NumNodes returns the total number of nodes stored in the local routing table
@@ -117,7 +76,6 @@ func (dht *DHT) Nodes() []*NetworkNode {
 
 // GetSelfID returns the identifier of the local node
 func (dht *DHT) GetSelfID() []byte {
-	var _ = protocol.Node{}
 	return dht.ht.Self.ID
 }
 
@@ -210,7 +168,7 @@ func (dht *DHT) Locate(key []byte) (_none []*NetworkNode, err error) {
 				continue
 			}
 
-			deadline, cancel := context.WithTimeout(context.Background(), dht.TMsgTimeout)
+			deadline, cancel := context.WithTimeout(context.Background(), dht.TLocateTimeout)
 			nearest, err := dht.networking.probe(deadline, key, node)
 			cancel()
 			if err != nil {
@@ -220,8 +178,10 @@ func (dht *DHT) Locate(key []byte) (_none []*NetworkNode, err error) {
 				sl.RemoveNode(node)
 				continue
 			}
-			log.Println("adding node", dht.GetSelf().IP, dht.GetSelf().Port, "->", node.IP, node.Port)
+
 			dht.addNode(node)
+			// log.Println("added node", dht.GetSelf().IP, dht.GetSelf().Port, "->", node.IP, node.Port, hex.EncodeToString(node.ID))
+
 			sl.AppendUniqueNetworkNodes(nearest...)
 		}
 
@@ -238,7 +198,8 @@ func (dht *DHT) Locate(key []byte) (_none []*NetworkNode, err error) {
 				queryRest = true
 				continue
 			}
-			log.Println("SUCCESS", dht.GetSelf().IP, dht.GetSelf().Port, len(sl.Nodes))
+
+			// log.Println("SUCCESS", dht.GetSelf().IP, dht.GetSelf().Port, len(sl.Nodes))
 			return sl.Nodes, nil
 		}
 
@@ -302,62 +263,3 @@ func (dht *DHT) timers() {
 		}
 	}
 }
-
-// func (dht *DHT) listen(out chan *Message) {
-// 	defer func() {
-// 		select {
-// 		case <-out:
-// 		default:
-// 			if out != nil {
-// 				close(out)
-// 			}
-// 		}
-// 	}()
-//
-// 	for {
-// 		select {
-// 		case msg := <-dht.networking.getMessage():
-// 			if msg == nil {
-// 				// Disconnected
-// 				dht.networking.messagesFin()
-// 				return
-// 			}
-//
-// 			switch msg.Type {
-// 			case messageTypeFindNode:
-// 				data := msg.Data.(*queryDataFindNode)
-// 				closest := dht.ht.getClosestContacts(dht.ht.bSize, data.Target, []*NetworkNode{msg.Sender})
-// 				response := &Message{
-// 					Type:     messageTypeFindNode,
-// 					Sender:   dht.ht.Self,
-// 					Receiver: msg.Sender,
-// 					Data: &responseDataFindNode{
-// 						Closest: closest.Nodes,
-// 					},
-// 					IsResponse: true,
-// 				}
-// 				dht.networking.sendMessage(response, false, msg.ID)
-// 			case messageTypePing:
-// 				response := &Message{
-// 					Type:       messageTypePing,
-// 					Sender:     dht.ht.Self,
-// 					Receiver:   msg.Sender,
-// 					IsResponse: true,
-// 				}
-// 				dht.networking.sendMessage(response, false, msg.ID)
-// 				// not interested in adding nodes due to a ping.
-// 				continue
-// 			default:
-// 				select {
-// 				case out <- msg:
-// 				default:
-// 				}
-// 			}
-//
-// 			dht.addNode(msg.Sender)
-// 		case <-dht.networking.getDisconnect():
-// 			dht.networking.messagesFin()
-// 			return
-// 		}
-// 	}
-// }

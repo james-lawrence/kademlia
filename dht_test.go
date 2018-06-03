@@ -3,7 +3,6 @@ package kademlia
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"testing"
@@ -202,17 +201,12 @@ func TestNetworkingSendError(t *testing.T) {
 	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
-	go func() {
-		dht.Bind(grpc.NewServer())
-	}()
+	go dht.Bind(grpc.NewServer())
 
 	go func() {
-		v := <-networking.recv
-		assert.Nil(t, v)
+		networking.fail <- ErrMockNetworking
 		close(done)
 	}()
-
-	networking.failNextSendMessage()
 
 	dht.Bootstrap(&NetworkNode{
 		ID:   getZerodIDWithNthByte(1, byte(255)),
@@ -230,34 +224,14 @@ func TestNodeResponseSendError(t *testing.T) {
 	networking := newMockNetworking()
 	done := make(chan int)
 
-	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000}, OptionTimeout(50*time.Millisecond))
 	dht.networking = networking
 
-	queries := 0
+	go dht.Bind(grpc.NewServer())
 
 	go func() {
-		dht.Bind(grpc.NewServer())
-	}()
-
-	go func() {
-		for {
-			query := <-networking.recv
-			if query == nil {
-				return
-			}
-
-			if queries == 1 {
-				// Don't respond
-				close(done)
-			} else {
-				queries++
-				// res := mockFindNodeResponse(query, getZerodIDWithNthByte(2, byte(255)))
-				// networking.send <- res
-				// TODO: make this work.
-				assert.True(t, false)
-				close(done)
-			}
-		}
+		networking.probes <- mockFindNodeResponse(getZerodIDWithNthByte(2, byte(255)))
+		close(done)
 	}()
 
 	dht.Bootstrap(
@@ -269,9 +243,7 @@ func TestNodeResponseSendError(t *testing.T) {
 	)
 
 	assert.Equal(t, 1, dht.ht.totalNodes())
-	log.Println("disconnecting")
 	dht.Disconnect()
-	log.Println("disconnected")
 	<-done
 }
 
@@ -285,30 +257,16 @@ func TestBucketRefresh(t *testing.T) {
 	dht := NewDHT(
 		NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000},
 		OptionRefresh(time.Second),
+		OptionTimeout(10*time.Millisecond),
 	)
 	dht.networking = networking
-
-	queries := 0
-
 	go dht.Bind(grpc.NewServer())
 
 	go func() {
-		for {
-			query := <-networking.recv
-			if query == nil {
-				close(done)
-				return
-			}
-			queries++
-
-			// res := mockFindNodeResponseEmpty(query)
-			// networking.send <- res
-			assert.True(t, false)
-
-			if queries == 2 {
-				close(refresh)
-			}
-		}
+		networking.probes <- []*NetworkNode{}
+		networking.probes <- []*NetworkNode{}
+		close(refresh)
+		close(done)
 	}()
 
 	assert.NoError(

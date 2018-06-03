@@ -18,10 +18,8 @@ var (
 )
 
 type networking interface {
-	sendMessage(*Message, bool, int64) (*expectedResponse, error)
 	ping(ctx context.Context, to *NetworkNode) (*NetworkNode, error)
 	probe(ctx context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error)
-	getMessage() chan *Message
 	timersFin()
 	getDisconnect() chan int
 	listen(s *grpc.Server) error

@@ -18,21 +18,14 @@ func TestFindNodeAllBuckets(t *testing.T) {
 	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
-	go func() {
-		dht.Bind(grpc.NewServer())
-	}()
+	go dht.Bind(grpc.NewServer())
 
 	var k = 0
 	var i = 6
 
 	go func() {
 		for {
-			query := <-networking.recv
-			if query == nil {
-				return
-			}
-
-			res := mockFindNodeResponse(query, getZerodIDWithNthByte(k, byte(math.Pow(2, float64(i)))))
+			networking.probes <- mockFindNodeResponse(getZerodIDWithNthByte(k, byte(math.Pow(2, float64(i)))))
 
 			i--
 			if i < 0 {
@@ -42,8 +35,6 @@ func TestFindNodeAllBuckets(t *testing.T) {
 			if k > 19 {
 				k = 19
 			}
-
-			networking.send <- res
 		}
 	}()
 
@@ -68,52 +59,20 @@ func TestFindNodeAllBuckets(t *testing.T) {
 // added in order to determine if it is still alive.
 func TestAddNodeTimeout(t *testing.T) {
 	networking := newMockNetworking()
-	done := make(chan int)
-	pinged := make(chan int)
+	probes := make(chan int)
 	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
 
-	var (
-		nodesAdded = 1
-		firstNode  []byte
-		lastNode   []byte
-	)
-
 	go func() {
-		for {
-			query := <-networking.recv
-			if query == nil {
-				return
-			}
-			switch query.Type {
-			case messageTypeFindNode:
-				id := getIDWithValues(0)
-				if nodesAdded > dht.ht.bSize+1 {
-					close(done)
-					return
-				}
-
-				if nodesAdded == 1 {
-					firstNode = id
-				}
-
-				if nodesAdded == dht.ht.bSize {
-					lastNode = id
-				}
-
-				id[1] = byte(255 - nodesAdded)
-				nodesAdded++
-
-				res := mockFindNodeResponse(query, id)
-				networking.send <- res
-			case messageTypePing:
-				assert.Equal(t, messageTypePing, query.Type)
-				assert.Equal(t, getZerodIDWithNthByte(1, byte(255)), query.Receiver.ID)
-				close(pinged)
-			}
+		for i := 1; i < dht.ht.bSize; i++ {
+			id := getZerodIDWithNthByte(1, byte(255-i))
+			networking.probes <- mockFindNodeResponse(id)
 		}
+
+		networking.probes <- mockFindNodeResponse(getZerodIDWithNthByte(1, byte(255)))
+		close(probes)
 	}()
 
 	dht.Bootstrap(
@@ -124,13 +83,15 @@ func TestAddNodeTimeout(t *testing.T) {
 		},
 	)
 
-	// ensure the first node in the table is the second node contacted, and the
-	// last is the last node contacted
-	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[dht.ht.bBits-9][0].ID, firstNode))
-	assert.Equal(t, 0, bytes.Compare(dht.ht.RoutingTable[dht.ht.bBits-9][19].ID, lastNode))
+	// ensure all the expected nodes are in the table.
+	for i := 0; i < dht.ht.bSize; i++ {
+		actual := dht.ht.RoutingTable[dht.ht.bBits-9][i].ID
+		expected := getZerodIDWithNthByte(1, byte(255-i))
+		// log.Println(i, hex.EncodeToString(actual), hex.EncodeToString(expected))
+		assert.Equal(t, 0, bytes.Compare(actual, expected))
+	}
 
-	<-done
-	<-pinged
+	<-probes
 
 	assert.NoError(t, dht.Disconnect())
 }
