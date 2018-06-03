@@ -41,13 +41,6 @@ func (net *mockNetworking) disconnect() error {
 	return nil
 }
 
-func (net *mockNetworking) createSocket(host net.IP, port string, useStun bool, stunAddr string) (publicHost string, publicPort string, err error) {
-	return "", "", nil
-}
-
-func (net *mockNetworking) cancelResponse(*expectedResponse) {
-}
-
 func (net *mockNetworking) ping(deadline context.Context, to *NetworkNode) (*NetworkNode, error) {
 	// log.Println("PING RECEIVED")
 	// defer log.Println("PING COMPLETED")
