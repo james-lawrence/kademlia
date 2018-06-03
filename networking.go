@@ -84,6 +84,10 @@ func (rn *realNetworking) ping(deadline context.Context, to *NetworkNode) (*Netw
 		Receiver: fromNetworkNode(to),
 	})
 
+	if err != nil {
+		return nil, err
+	}
+
 	return toNetworkNode(resp.Sender), err
 }
 
