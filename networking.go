@@ -104,6 +104,10 @@ func (rn *realNetworking) probe(deadline context.Context, key []byte, to *Networ
 		Key:      key,
 	})
 
+	if err != nil {
+		return nil, err
+	}
+
 	return toNetworkNodes(resp.Nearest...), err
 }
 
