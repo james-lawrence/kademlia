@@ -36,6 +36,7 @@ type SocketOption func(*Socket)
 func SocketOptionGateway(gateway net.IP, port int) SocketOption {
 	return func(s *Socket) {
 		s.Gateway = gateway
+		s.Port = port
 	}
 }
 
