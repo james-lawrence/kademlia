@@ -26,7 +26,7 @@ const (
 // hashTable represents the hashtable state
 type hashTable struct {
 	// The ID of the local node
-	Self *NetworkNode
+	Self NetworkNode
 	// the size in bits of the keys used to identify nodes and store and
 	// retrieve data; in basic Kademlia this is 160, the length of a SHA1
 	bBits int
@@ -37,14 +37,14 @@ type hashTable struct {
 	// [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
 	//  ^                                                           ^
 	//  └ Least recently seen                    Most recently seen ┘
-	RoutingTable [][]*NetworkNode // 160x20
+	RoutingTable [][]NetworkNode // 160x20
 
 	mutex *sync.Mutex
 
 	refreshMap []time.Time
 }
 
-func newHashTable(n *NetworkNode) *hashTable {
+func newHashTable(n NetworkNode) *hashTable {
 	ht := &hashTable{
 		bBits: 160,
 		bSize: 20,
@@ -59,7 +59,7 @@ func newHashTable(n *NetworkNode) *hashTable {
 	}
 
 	for i := 0; i < ht.bBits; i++ {
-		ht.RoutingTable = append(ht.RoutingTable, []*NetworkNode{})
+		ht.RoutingTable = append(ht.RoutingTable, []NetworkNode{})
 	}
 
 	return ht
@@ -110,7 +110,7 @@ func (ht *hashTable) doesNodeExistInBucket(bucket int, node []byte) bool {
 	return false
 }
 
-func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes ...*NetworkNode) *shortList {
+func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes ...NetworkNode) *shortList {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
 	// First we need to build the list of adjacent indices to our target
@@ -279,10 +279,10 @@ func (ht *hashTable) totalNodes() int {
 	return total
 }
 
-func (ht *hashTable) Nodes() (nodes []*NetworkNode) {
+func (ht *hashTable) Nodes() (nodes []NetworkNode) {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()
-	nodes = make([]*NetworkNode, 0, ht.bSize)
+	nodes = make([]NetworkNode, 0, ht.bSize)
 	for _, v := range ht.RoutingTable {
 		nodes = append(nodes, v...)
 	}

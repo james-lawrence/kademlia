@@ -2,16 +2,16 @@ package kademlia
 
 import (
 	"bytes"
+	"context"
 	"math/big"
 	"net"
 	"strconv"
 
 	"github.com/anacrolix/utp"
-	"github.com/ccding/go-stun/stun"
 )
 
-func mustNode(id []byte, addr string) NetworkNode {
-	n, err := NewNode(id, addr)
+func mustSocket(addr string) Socket {
+	n, err := NewSocket(addr)
 	if err != nil {
 		panic(err)
 	}
@@ -19,56 +19,81 @@ func mustNode(id []byte, addr string) NetworkNode {
 	return n
 }
 
-// NewNode create a new socket.
-func NewNode(id []byte, addr string) (n NetworkNode, err error) {
-	s, err := utp.NewSocket("udp", addr)
-	if err != nil {
-		return n, err
-	}
+//
+// // NewNode create a new socket.
+// func NewNode(id []byte, addr string) (n NetworkNode, err error) {
+// 	return NetworkNode{
+// 		ID:   id,
+// 		IP:   net.ParseIP(h),
+// 		Port: p,
+// 	}, nil
+// }
 
-	h, port, err := net.SplitHostPort(s.Addr().String())
-	if err != nil {
-		return n, err
-	}
+// SocketOption option for the utp socket.
+type SocketOption func(*Socket)
 
-	p, err := strconv.Atoi(port)
-	if err != nil {
-		return n, err
+// SocketOptionGateway public IP for the socket.
+func SocketOptionGateway(gateway net.IP) SocketOption {
+	return func(s *Socket) {
+		s.Gateway = gateway
 	}
-
-	return NetworkNode{
-		ID:     id,
-		IP:     net.ParseIP(h),
-		Port:   p,
-		socket: s,
-	}, nil
 }
 
-// NewStunNode enable stun for discovery using the given net.PacketConn
-// and the provided stun server address.
-func NewStunNode(id []byte, addr, stunAddr string) (n NetworkNode, err error) {
-	if n, err = NewNode(id, addr); err != nil {
-		return n, err
+// NewSocket public ip of the socket.
+func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
+	var (
+		utps        *utp.Socket
+		host, sport string
+		port        int
+	)
+
+	if utps, err = utp.NewSocket("udp", addr); err != nil {
+		return s, err
 	}
 
-	c := stun.NewClientWithConnection(n.socket)
-	c.SetServerAddr(stunAddr)
-
-	_, h, err := c.Discover()
-	if err != nil {
-		return n, err
+	if host, sport, err = net.SplitHostPort(utps.LocalAddr().String()); err != nil {
+		return s, err
 	}
 
-	_, err = c.Keepalive()
-	if err != nil {
-		return n, err
+	if port, err = strconv.Atoi(sport); err != nil {
+		return s, err
 	}
 
+	s = Socket{
+		Gateway: net.ParseIP(host),
+		Port:    port,
+		utps:    utps,
+	}
+
+	return s.merge(options...), nil
+}
+
+// Socket network connection with public IP information.
+type Socket struct {
+	Gateway net.IP
+	Port    int
+	utps    *utp.Socket
+}
+
+func (t Socket) NewNode(id []byte) NetworkNode {
 	return NetworkNode{
-		IP:     net.ParseIP(h.IP()),
-		Port:   int(h.Port()),
-		socket: n.socket,
-	}, nil
+		ID:   id,
+		IP:   t.Gateway,
+		Port: t.Port,
+	}
+}
+
+func (t Socket) merge(options ...SocketOption) Socket {
+	for _, opt := range options {
+		opt(&t)
+	}
+
+	return t
+}
+
+// Dial a peer using this socket.
+func (t Socket) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
+	return t.utps.DialContext(ctx, "udp", net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port)))
 }
 
 // NetworkNode is the over-the-wire representation of a node
@@ -81,15 +106,13 @@ type NetworkNode struct {
 
 	// Port is the public port of the node
 	Port int
-
-	socket *utp.Socket
 }
 
 // nodeList is used in order to sort a list of arbitrary nodes against a
 // comparator. These nodes are sorted by xor distance
 type shortList struct {
 	// Nodes are a list of nodes to be compared
-	Nodes []*NetworkNode
+	Nodes []NetworkNode
 
 	// Comparator is the ID to compare to
 	Comparator []byte
@@ -116,7 +139,7 @@ func areNodesEqual(n1 *NetworkNode, n2 *NetworkNode, allowNilID bool) bool {
 	return true
 }
 
-func (n *shortList) RemoveNode(node *NetworkNode) {
+func (n *shortList) RemoveNode(node NetworkNode) {
 	for i := 0; i < n.Len(); i++ {
 		if bytes.Compare(n.Nodes[i].ID, node.ID) == 0 {
 			n.Nodes = append(n.Nodes[:i], n.Nodes[i+1:]...)
@@ -125,7 +148,7 @@ func (n *shortList) RemoveNode(node *NetworkNode) {
 	}
 }
 
-func (n *shortList) AppendUniqueNetworkNodes(nodes ...*NetworkNode) {
+func (n *shortList) AppendUniqueNetworkNodes(nodes ...NetworkNode) {
 	for _, vv := range nodes {
 		exists := false
 		for _, v := range n.Nodes {
@@ -139,7 +162,7 @@ func (n *shortList) AppendUniqueNetworkNodes(nodes ...*NetworkNode) {
 	}
 }
 
-func (n *shortList) AppendUnique(nodes ...*NetworkNode) {
+func (n *shortList) AppendUnique(nodes ...NetworkNode) {
 	for _, vv := range nodes {
 		exists := false
 		for _, v := range n.Nodes {

@@ -10,8 +10,8 @@ import (
 
 func newMockNetworking() *mockNetworking {
 	return &mockNetworking{
-		pings:        make(chan *NetworkNode),
-		probes:       make(chan []*NetworkNode),
+		pings:        make(chan NetworkNode),
+		probes:       make(chan []NetworkNode),
 		fail:         make(chan error),
 		dcTimersChan: make(chan int),
 		dc:           make(chan int),
@@ -19,8 +19,8 @@ func newMockNetworking() *mockNetworking {
 }
 
 type mockNetworking struct {
-	probes       chan []*NetworkNode
-	pings        chan *NetworkNode
+	probes       chan []NetworkNode
+	pings        chan NetworkNode
 	fail         chan error
 	dc           chan int
 	dcTimersChan chan int
@@ -41,29 +41,29 @@ func (net *mockNetworking) disconnect() error {
 	return nil
 }
 
-func (net *mockNetworking) ping(deadline context.Context, to *NetworkNode) (*NetworkNode, error) {
+func (net *mockNetworking) ping(deadline context.Context, to NetworkNode) (NetworkNode, error) {
 	// log.Println("PING RECEIVED")
 	// defer log.Println("PING COMPLETED")
 	select {
 	case <-deadline.Done():
-		return nil, deadline.Err()
+		return NetworkNode{}, deadline.Err()
 	case err := <-net.fail:
-		return nil, err
+		return NetworkNode{}, err
 	case from := <-net.pings:
 		return from, nil
 	}
 }
 
-func (net *mockNetworking) probe(deadline context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error) {
+func (net *mockNetworking) probe(deadline context.Context, key []byte, to NetworkNode) ([]NetworkNode, error) {
 	// log.Println("PROBE RECEIVED", net.probes)
 	// defer log.Println("PROBE COMPLETED")
 	select {
 	case <-deadline.Done():
-		return []*NetworkNode{}, deadline.Err()
+		return []NetworkNode{}, deadline.Err()
 	case closest := <-net.probes:
 		return closest, nil
 	case err := <-net.fail:
-		return []*NetworkNode{}, err
+		return []NetworkNode{}, err
 	}
 }
 
@@ -75,8 +75,8 @@ func (net *mockNetworking) getDisconnect() chan (int) {
 	return net.dc
 }
 
-func mockFindNodeResponse(nextID []byte) []*NetworkNode {
-	return []*NetworkNode{{IP: net.ParseIP("0.0.0.0"), Port: 3001, ID: nextID}}
+func mockFindNodeResponse(nextID []byte) []NetworkNode {
+	return []NetworkNode{{IP: net.ParseIP("0.0.0.0"), Port: 3001, ID: nextID}}
 }
 
 var ErrMockNetworking = errors.New("MockNetworking Error")

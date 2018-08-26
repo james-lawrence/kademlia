@@ -48,10 +48,11 @@ type DHT struct {
 
 // NewDHT initializes a new DHT node. A store and options struct must be
 // provided.
-func NewDHT(n NetworkNode, options ...Option) *DHT {
+func NewDHT(id []byte, s Socket, options ...Option) *DHT {
+	n := s.NewNode(id)
 	dht := &DHT{
-		ht:             newHashTable(&n),
-		networking:     newNetwork(&n),
+		ht:             newHashTable(n),
+		networking:     newNetwork(n, s),
 		TRefresh:       time.Hour,
 		TPingMax:       time.Second,
 		TLocateTimeout: 5 * time.Second,
@@ -70,7 +71,7 @@ func (dht *DHT) NumNodes() int {
 }
 
 // Nodes returns the nodes themselves sotred in the routing table.
-func (dht *DHT) Nodes() []*NetworkNode {
+func (dht *DHT) Nodes() []NetworkNode {
 	return dht.ht.Nodes()
 }
 
@@ -80,7 +81,7 @@ func (dht *DHT) GetSelfID() []byte {
 }
 
 // GetSelf returns the node information of the local node.
-func (dht *DHT) GetSelf() *NetworkNode {
+func (dht *DHT) GetSelf() NetworkNode {
 	return dht.ht.Self
 }
 
@@ -94,7 +95,7 @@ func (dht *DHT) Bind(s *grpc.Server) error {
 // Bootstrap attempts to bootstrap the network using the BootstrapNodes provided
 // to the Options struct. This will trigger an iterativeFindNode to the provided
 // BootstrapNodes.
-func (dht *DHT) Bootstrap(nodes ...*NetworkNode) (err error) {
+func (dht *DHT) Bootstrap(nodes ...NetworkNode) (err error) {
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -129,7 +130,7 @@ func (dht *DHT) Disconnect() error {
 
 // Locate does an iterative search through the network based on key.
 // used to locate the nodes to interact with for a given key.
-func (dht *DHT) Locate(key []byte) (_none []*NetworkNode, err error) {
+func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 	var (
 		// According to the Kademlia white paper, after a round of FIND_NODE RPCs
 		// fails to provide a node closer than closestNode, we should send a
@@ -210,7 +211,7 @@ func (dht *DHT) Locate(key []byte) (_none []*NetworkNode, err error) {
 // addNode adds a node into the appropriate k bucket
 // we store these buckets in big-endian order so we look at the bits
 // from right to left in order to find the appropriate bucket
-func (dht *DHT) addNode(node *NetworkNode) {
+func (dht *DHT) addNode(node NetworkNode) {
 	index := getBucketIndexFromDifferingBit(dht.ht.bBits, dht.ht.Self.ID, node.ID)
 
 	// Make sure node doesn't already exist

@@ -17,8 +17,8 @@ var (
 )
 
 type networking interface {
-	ping(ctx context.Context, to *NetworkNode) (*NetworkNode, error)
-	probe(ctx context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error)
+	ping(ctx context.Context, to NetworkNode) (NetworkNode, error)
+	probe(ctx context.Context, key []byte, to NetworkNode) ([]NetworkNode, error)
 	timersFin()
 	getDisconnect() chan int
 	listen(s *grpc.Server) error
@@ -26,16 +26,17 @@ type networking interface {
 	getNetworkAddr() string
 }
 
-func newNetwork(n *NetworkNode) *realNetworking {
+func newNetwork(n NetworkNode, s Socket) *realNetworking {
 	return &realNetworking{
-		self:         n,
+		socket:       s,
+		node:         n,
 		mutex:        &sync.Mutex{},
 		dcStartChan:  make(chan int, 10),
 		dcEndChan:    make(chan int),
 		dcTimersChan: make(chan int),
 		msgCounter:   new(int64),
 		aliveConns:   &sync.WaitGroup{},
-		connected:    n.socket != nil,
+		connected:    true,
 	}
 }
 
@@ -46,9 +47,10 @@ type realNetworking struct {
 	mutex         *sync.Mutex
 	connected     bool
 	aliveConns    *sync.WaitGroup
-	self          *NetworkNode
 	msgCounter    *int64
 	remoteAddress string
+	node          NetworkNode
+	socket        Socket
 }
 
 func (rn *realNetworking) getNetworkAddr() string {
@@ -63,35 +65,35 @@ func (rn *realNetworking) timersFin() {
 	rn.dcTimersChan <- 1
 }
 
-func (rn *realNetworking) getConn(to *NetworkNode) (*grpc.ClientConn, error) {
+func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
 	dst := net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port))
 	return grpc.Dial(dst, grpc.WithInsecure(), grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
 		deadline, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		return rn.self.socket.DialContext(deadline, "", dst)
+		return rn.socket.Dial(deadline, to)
 	}))
 }
 
-func (rn *realNetworking) ping(deadline context.Context, to *NetworkNode) (*NetworkNode, error) {
+func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn NetworkNode, err error) {
 	conn, err := rn.getConn(to)
 	if err != nil {
-		return nil, err
+		return _zn, err
 	}
 	defer conn.Close()
 
 	resp, err := protocol.NewKademliaClient(conn).Ping(deadline, &protocol.PingRequest{
-		Sender:   FromNetworkNode(rn.self),
+		Sender:   FromNetworkNode(rn.node),
 		Receiver: FromNetworkNode(to),
 	})
 
 	if err != nil {
-		return nil, err
+		return _zn, err
 	}
 
 	return toNetworkNode(resp.Sender), err
 }
 
-func (rn *realNetworking) probe(deadline context.Context, key []byte, to *NetworkNode) ([]*NetworkNode, error) {
+func (rn *realNetworking) probe(deadline context.Context, key []byte, to NetworkNode) ([]NetworkNode, error) {
 	conn, err := rn.getConn(to)
 	if err != nil {
 		return nil, err
@@ -99,7 +101,7 @@ func (rn *realNetworking) probe(deadline context.Context, key []byte, to *Networ
 	defer conn.Close()
 
 	resp, err := protocol.NewKademliaClient(conn).Probe(deadline, &protocol.ProbeRequest{
-		Sender:   FromNetworkNode(rn.self),
+		Sender:   FromNetworkNode(rn.node),
 		Receiver: FromNetworkNode(to),
 		Key:      key,
 	})
@@ -121,12 +123,12 @@ func (rn *realNetworking) disconnect() error {
 	rn.dcStartChan <- 1
 	<-rn.dcTimersChan
 	close(rn.dcTimersChan)
-	err := rn.self.socket.CloseNow()
+	err := rn.socket.utps.CloseNow()
 	rn.connected = false
 	close(rn.dcEndChan)
 	return err
 }
 
 func (rn *realNetworking) listen(s *grpc.Server) error {
-	return s.Serve(rn.self.socket)
+	return s.Serve(rn.socket.utps)
 }

@@ -15,7 +15,7 @@ import (
 // is occupied.
 func TestFindNodeAllBuckets(t *testing.T) {
 	networking := newMockNetworking()
-	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(getIDWithValues(0), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -39,7 +39,7 @@ func TestFindNodeAllBuckets(t *testing.T) {
 	}()
 
 	dht.Bootstrap(
-		&NetworkNode{
+		NetworkNode{
 			ID:   getZerodIDWithNthByte(0, byte(math.Pow(2, 7))),
 			Port: 3001,
 			IP:   net.ParseIP("0.0.0.0"),
@@ -60,7 +60,7 @@ func TestFindNodeAllBuckets(t *testing.T) {
 func TestAddNodeTimeout(t *testing.T) {
 	networking := newMockNetworking()
 	probes := make(chan int)
-	dht := NewDHT(NetworkNode{ID: getIDWithValues(0), IP: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(getIDWithValues(0), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -76,7 +76,7 @@ func TestAddNodeTimeout(t *testing.T) {
 	}()
 
 	dht.Bootstrap(
-		&NetworkNode{
+		NetworkNode{
 			ID:   getZerodIDWithNthByte(1, byte(255)),
 			Port: 3001,
 			IP:   net.ParseIP("0.0.0.0"),
@@ -87,7 +87,6 @@ func TestAddNodeTimeout(t *testing.T) {
 	for i := 0; i < dht.ht.bSize; i++ {
 		actual := dht.ht.RoutingTable[dht.ht.bBits-9][i].ID
 		expected := getZerodIDWithNthByte(1, byte(255-i))
-		// log.Println(i, hex.EncodeToString(actual), hex.EncodeToString(expected))
 		assert.Equal(t, 0, bytes.Compare(actual, expected))
 	}
 
@@ -97,7 +96,7 @@ func TestAddNodeTimeout(t *testing.T) {
 }
 
 func TestGetRandomIDFromBucket(t *testing.T) {
-	dht := NewDHT(mustNode(getIDWithValues(0), "127.0.0.1:3000"))
+	dht := NewDHT(getIDWithValues(0), mustSocket("127.0.0.1:3000"))
 	go dht.Bind(grpc.NewServer())
 
 	// Bytes should be equal up to the bucket index that the random ID was

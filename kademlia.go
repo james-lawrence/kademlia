@@ -38,15 +38,15 @@ func (t server) Probe(ctx context.Context, req *protocol.ProbeRequest) (*protoco
 	}, nil
 }
 
-func toNetworkNode(n *protocol.Node) *NetworkNode {
-	return &NetworkNode{
+func toNetworkNode(n *protocol.Node) NetworkNode {
+	return NetworkNode{
 		ID:   n.ID,
 		IP:   net.ParseIP(n.IP),
 		Port: int(n.Port),
 	}
 }
 
-func FromNetworkNode(n *NetworkNode) *protocol.Node {
+func FromNetworkNode(n NetworkNode) *protocol.Node {
 	return &protocol.Node{
 		ID:   n.ID,
 		IP:   n.IP.String(),
@@ -54,15 +54,15 @@ func FromNetworkNode(n *NetworkNode) *protocol.Node {
 	}
 }
 
-func toNetworkNodes(ns ...*protocol.Node) (out []*NetworkNode) {
-	out = make([]*NetworkNode, 0, len(ns))
+func toNetworkNodes(ns ...*protocol.Node) (out []NetworkNode) {
+	out = make([]NetworkNode, 0, len(ns))
 	for _, n := range ns {
 		out = append(out, toNetworkNode(n))
 	}
 	return out
 }
 
-func FromNetworkNodes(ns ...*NetworkNode) (out []*protocol.Node) {
+func FromNetworkNodes(ns ...NetworkNode) (out []*protocol.Node) {
 	out = make([]*protocol.Node, 0, len(ns))
 	for _, n := range ns {
 		out = append(out, &protocol.Node{
