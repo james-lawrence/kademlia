@@ -15,7 +15,7 @@ import (
 // is occupied.
 func TestFindNodeAllBuckets(t *testing.T) {
 	networking := newMockNetworking()
-	dht := NewDHT(getIDWithValues(0), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionNodeID(getIDWithValues(0)))
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -60,7 +60,7 @@ func TestFindNodeAllBuckets(t *testing.T) {
 func TestAddNodeTimeout(t *testing.T) {
 	networking := newMockNetworking()
 	probes := make(chan int)
-	dht := NewDHT(getIDWithValues(0), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionNodeID(getIDWithValues(0)))
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -96,7 +96,7 @@ func TestAddNodeTimeout(t *testing.T) {
 }
 
 func TestGetRandomIDFromBucket(t *testing.T) {
-	dht := NewDHT(getIDWithValues(0), mustSocket("127.0.0.1:3000"))
+	dht := NewDHT(mustSocket("127.0.0.1:3000"), OptionNodeID(getIDWithValues(0)))
 	go dht.Bind(grpc.NewServer())
 
 	// Bytes should be equal up to the bucket index that the random ID was

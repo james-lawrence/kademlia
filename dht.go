@@ -31,9 +31,18 @@ func OptionRefresh(d time.Duration) Option {
 	}
 }
 
+// OptionNodeID set node id, overriding the fingerprint.
+// only should be used in tests.
+func OptionNodeID(id []byte) Option {
+	return func(dht *DHT) {
+		dht.n.ID = id
+	}
+}
+
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
 	s          Socket
+	n          NetworkNode
 	ht         *hashTable
 	networking networking
 
@@ -50,19 +59,26 @@ type DHT struct {
 
 // NewDHT initializes a new DHT node. A store and options struct must be
 // provided.
-func NewDHT(id []byte, s Socket, options ...Option) *DHT {
-	n := s.NewNode(id)
-	dht := &DHT{
+func NewDHT(s Socket, options ...Option) *DHT {
+	dht := DHT{
 		s:              s,
-		ht:             newHashTable(n),
-		networking:     newNetwork(n, s),
+		n:              s.NewNode(),
 		TRefresh:       time.Hour,
 		TPingMax:       time.Second,
 		TLocateTimeout: 5 * time.Second,
-	}
+	}.merge(options...)
 
+	dht = dht.merge(Option(func(u *DHT) {
+		u.ht = newHashTable(u.n)
+		u.networking = newNetwork(u.n, s)
+	}))
+
+	return &dht
+}
+
+func (dht DHT) merge(options ...Option) DHT {
 	for _, opt := range options {
-		opt(dht)
+		opt(&dht)
 	}
 
 	return dht

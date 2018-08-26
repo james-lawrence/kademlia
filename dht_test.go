@@ -24,7 +24,7 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 			return
 		}
 
-		dhts = append(dhts, NewDHT(MustNewID(), s))
+		dhts = append(dhts, NewDHT(s))
 	}
 
 	for _, dht := range dhts {
@@ -58,8 +58,8 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 // about each other afterwards.
 func TestBootstrapTwoNodes(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3000"))
-	dht2 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3001"))
+	dht1 := NewDHT(mustSocket("127.0.0.1:3000"))
+	dht2 := NewDHT(mustSocket("127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -87,9 +87,9 @@ func TestBootstrapTwoNodes(t *testing.T) {
 // about both B and C
 func TestBootstrapThreeNodes(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3000"))
-	dht2 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3001"))
-	dht3 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3002"))
+	dht1 := NewDHT(mustSocket("127.0.0.1:3000"))
+	dht2 := NewDHT(mustSocket("127.0.0.1:3001"))
+	dht3 := NewDHT(mustSocket("127.0.0.1:3002"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -134,8 +134,8 @@ func TestBootstrapThreeNodes(t *testing.T) {
 // ping the first node to find its ID
 func TestBootstrapNoID(t *testing.T) {
 	done := make(chan bool)
-	dht1 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3000"))
-	dht2 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3001"))
+	dht1 := NewDHT(mustSocket("127.0.0.1:3000"))
+	dht2 := NewDHT(mustSocket("127.0.0.1:3001"))
 
 	assert.Equal(t, 0, dht1.NumNodes())
 	assert.Equal(t, 0, dht2.NumNodes())
@@ -168,8 +168,8 @@ func TestBootstrapNoID(t *testing.T) {
 func TestReconnect(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		done := make(chan bool)
-		dht1 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3000"))
-		dht2 := NewDHT(MustNewID(), mustSocket("127.0.0.1:3001"))
+		dht1 := NewDHT(mustSocket("127.0.0.1:3000"))
+		dht2 := NewDHT(mustSocket("127.0.0.1:3001"))
 
 		assert.Equal(t, 0, dht1.NumNodes())
 
@@ -199,7 +199,7 @@ func TestReconnect(t *testing.T) {
 func TestNetworkingSendError(t *testing.T) {
 	networking := newMockNetworking()
 	done := make(chan int)
-	dht := NewDHT(MustNewID(), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -225,7 +225,7 @@ func TestNodeResponseSendError(t *testing.T) {
 	networking := newMockNetworking()
 	done := make(chan int)
 
-	dht := NewDHT(getIDWithValues(0), Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionTimeout(50*time.Millisecond))
+	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionTimeout(50*time.Millisecond), OptionNodeID(getIDWithValues(0)))
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -256,8 +256,8 @@ func TestBucketRefresh(t *testing.T) {
 	refresh := make(chan (int))
 
 	dht := NewDHT(
-		getIDWithValues(0),
 		Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionNodeID(getIDWithValues(0)),
 		OptionRefresh(time.Second),
 		OptionTimeout(10*time.Millisecond),
 	)

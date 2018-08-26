@@ -33,7 +33,7 @@ func mustSocket(addr string) Socket {
 type SocketOption func(*Socket)
 
 // SocketOptionGateway public IP for the socket.
-func SocketOptionGateway(gateway net.IP) SocketOption {
+func SocketOptionGateway(gateway net.IP, port int) SocketOption {
 	return func(s *Socket) {
 		s.Gateway = gateway
 	}
@@ -76,9 +76,9 @@ type Socket struct {
 }
 
 // NewNode create a node from the current socket and the given id.
-func (t Socket) NewNode(id []byte) NetworkNode {
+func (t Socket) NewNode() NetworkNode {
 	return NetworkNode{
-		ID:   id,
+		ID:   GatewayFingerprint(t.Gateway, t.Port),
 		IP:   t.Gateway,
 		Port: t.Port,
 	}
@@ -95,6 +95,11 @@ func (t Socket) merge(options ...SocketOption) Socket {
 // Dial a peer using this socket.
 func (t Socket) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
 	return t.utps.DialContext(ctx, "udp", net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port)))
+}
+
+func GatewayFingerprint(ip net.IP, port int) []byte {
+	buf := bytes.NewBufferString(ip.String() + strconv.Itoa(int(port))).Bytes()
+	return ContentAddressable(buf)
 }
 
 // NetworkNode is the over-the-wire representation of a node
