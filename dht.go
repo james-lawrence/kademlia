@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"log"
+	"net"
 	"sort"
 	"time"
 
@@ -32,6 +33,7 @@ func OptionRefresh(d time.Duration) Option {
 
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
+	s          Socket
 	ht         *hashTable
 	networking networking
 
@@ -51,6 +53,7 @@ type DHT struct {
 func NewDHT(id []byte, s Socket, options ...Option) *DHT {
 	n := s.NewNode(id)
 	dht := &DHT{
+		s:              s,
 		ht:             newHashTable(n),
 		networking:     newNetwork(n, s),
 		TRefresh:       time.Hour,
@@ -78,6 +81,11 @@ func (dht *DHT) Nodes() []NetworkNode {
 // GetSelfID returns the identifier of the local node
 func (dht *DHT) GetSelfID() []byte {
 	return dht.ht.Self.ID
+}
+
+// Dial a peer in the DHT.
+func (dht *DHT) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
+	return dht.s.Dial(ctx, n)
 }
 
 // GetSelf returns the node information of the local node.

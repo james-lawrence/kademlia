@@ -46,6 +46,7 @@ func toNetworkNode(n *protocol.Node) NetworkNode {
 	}
 }
 
+// FromNetworkNode converts internal node structure to protocol node structure.
 func FromNetworkNode(n NetworkNode) *protocol.Node {
 	return &protocol.Node{
 		ID:   n.ID,
@@ -62,6 +63,7 @@ func toNetworkNodes(ns ...*protocol.Node) (out []NetworkNode) {
 	return out
 }
 
+// FromNetworkNodes convience function for converting multiple NetworkNode instances.
 func FromNetworkNodes(ns ...NetworkNode) (out []*protocol.Node) {
 	out = make([]*protocol.Node, 0, len(ns))
 	for _, n := range ns {

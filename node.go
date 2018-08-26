@@ -75,6 +75,7 @@ type Socket struct {
 	utps    *utp.Socket
 }
 
+// NewNode create a node from the current socket and the given id.
 func (t Socket) NewNode(id []byte) NetworkNode {
 	return NetworkNode{
 		ID:   id,
