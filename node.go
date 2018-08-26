@@ -65,7 +65,7 @@ func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 		utps:    utps,
 	}
 
-	return s.merge(options...), nil
+	return s.Merge(options...), nil
 }
 
 // Socket network connection with public IP information.
@@ -84,7 +84,8 @@ func (t Socket) NewNode() NetworkNode {
 	}
 }
 
-func (t Socket) merge(options ...SocketOption) Socket {
+// Merge options into the socket.
+func (t Socket) Merge(options ...SocketOption) Socket {
 	for _, opt := range options {
 		opt(&t)
 	}
@@ -97,6 +98,7 @@ func (t Socket) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
 	return t.utps.DialContext(ctx, "udp", net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port)))
 }
 
+// GatewayFingerprint generate a fingerprint a IP/port combination.
 func GatewayFingerprint(ip net.IP, port int) []byte {
 	buf := bytes.NewBufferString(ip.String() + strconv.Itoa(int(port))).Bytes()
 	return ContentAddressable(buf)
