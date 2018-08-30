@@ -2,7 +2,6 @@ package kademlia
 
 import (
 	"bytes"
-	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -46,7 +45,6 @@ func TestBootstrapTwentyNodes(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
-	fmt.Println("checking nodes")
 	for _, dht := range dhts {
 		assert.Equal(t, 19, dht.NumNodes())
 		assert.NoError(t, dht.Disconnect())
@@ -199,7 +197,10 @@ func TestReconnect(t *testing.T) {
 func TestNetworkingSendError(t *testing.T) {
 	networking := newMockNetworking()
 	done := make(chan int)
-	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000})
+	dht := NewDHT(
+		Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionNodeIDChecksum(nodeChecksumFunc(alwaysValidChecksum)),
+	)
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -225,7 +226,12 @@ func TestNodeResponseSendError(t *testing.T) {
 	networking := newMockNetworking()
 	done := make(chan int)
 
-	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionTimeout(50*time.Millisecond), OptionNodeID(getIDWithValues(0)))
+	dht := NewDHT(
+		Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionTimeout(50*time.Millisecond),
+		OptionNodeID(getIDWithValues(0)),
+		OptionNodeIDChecksum(nodeChecksumFunc(alwaysValidChecksum)),
+	)
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -260,6 +266,7 @@ func TestBucketRefresh(t *testing.T) {
 		OptionNodeID(getIDWithValues(0)),
 		OptionRefresh(time.Second),
 		OptionTimeout(10*time.Millisecond),
+		OptionNodeIDChecksum(nodeChecksumFunc(alwaysValidChecksum)),
 	)
 	dht.networking = networking
 	go dht.Bind(grpc.NewServer())

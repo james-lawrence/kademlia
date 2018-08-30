@@ -14,6 +14,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+type nodeChecksum interface {
+	Valid(NetworkNode) bool
+}
+
 // Option for a distributed hash table.
 type Option func(*DHT)
 
@@ -39,12 +43,24 @@ func OptionNodeID(id []byte) Option {
 	}
 }
 
+// OptionNodeIDChecksum set the function that forces node IDs to conform to a
+// checksum. prevents nodes from having multiple IDs for a single address/port.
+func OptionNodeIDChecksum(c nodeChecksum) Option {
+	return func(dht *DHT) {
+		dht.checksum = c
+	}
+}
+
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
-	s          Socket
-	n          NetworkNode
-	ht         *hashTable
+	s  Socket
+	n  NetworkNode
+	ht *hashTable
+
 	networking networking
+
+	// checksum is used to ensure the NodeID conforms to some uniqueness rules
+	checksum nodeChecksum
 
 	// Seconds after which an otherwise unaccessed bucket must be refreshed
 	TRefresh time.Duration
@@ -66,6 +82,7 @@ func NewDHT(s Socket, options ...Option) *DHT {
 		TRefresh:       time.Hour,
 		TPingMax:       time.Second,
 		TLocateTimeout: 5 * time.Second,
+		checksum:       nodeChecksumFunc(gatewayFingerprintChecksum),
 	}.merge(options...)
 
 	dht = dht.merge(Option(func(u *DHT) {
@@ -205,7 +222,6 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 			}
 
 			dht.addNode(node)
-			// log.Println("added node", dht.GetSelf().IP, dht.GetSelf().Port, "->", node.IP, node.Port, hex.EncodeToString(node.ID))
 
 			sl.AppendUniqueNetworkNodes(nearest...)
 		}
@@ -224,7 +240,6 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 				continue
 			}
 
-			// log.Println("SUCCESS", dht.GetSelf().IP, dht.GetSelf().Port, len(sl.Nodes))
 			return sl.Nodes, nil
 		}
 
@@ -236,35 +251,19 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 // we store these buckets in big-endian order so we look at the bits
 // from right to left in order to find the appropriate bucket
 func (dht *DHT) addNode(node NetworkNode) {
-	index := getBucketIndexFromDifferingBit(dht.ht.bBits, dht.ht.Self.ID, node.ID)
-
-	// Make sure node doesn't already exist
-	// If it does, mark it as seen
-	if dht.ht.doesNodeExistInBucket(index, node.ID) {
-		dht.ht.markNodeAsSeen(node.ID)
+	if !dht.checksum.Valid(node) {
+		log.Println(hex.EncodeToString(node.ID), node.IP, node.Port, "invalid node ID")
 		return
 	}
 
-	dht.ht.mutex.Lock()
-	defer dht.ht.mutex.Unlock()
-
-	bucket := dht.ht.RoutingTable[index]
-
-	if len(bucket) == dht.ht.bSize {
+	dht.ht.insertNode(node, func(test NetworkNode) error {
 		// If the bucket is full we need to ping the oldest node to find out
 		// if it responds back in a reasonable amount of time. If not - remove it.
 		deadline, cancel := context.WithTimeout(context.Background(), dht.TPingMax)
-		if _, err := dht.networking.ping(deadline, bucket[0]); err != nil {
-			bucket = append(bucket, node)
-			bucket = bucket[1:]
-		}
-
-		cancel()
-	} else {
-		bucket = append(bucket, node)
-	}
-
-	dht.ht.RoutingTable[index] = bucket
+		defer cancel()
+		_, err := dht.networking.ping(deadline, test)
+		return err
+	})
 }
 
 func (dht *DHT) timers() {

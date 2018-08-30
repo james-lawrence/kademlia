@@ -160,6 +160,35 @@ func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes ...
 	return sl
 }
 
+func (ht *hashTable) insertNode(node NetworkNode, pinger func(NetworkNode) error) {
+	index := getBucketIndexFromDifferingBit(ht.bBits, ht.Self.ID, node.ID)
+
+	// Make sure node doesn't already exist
+	// If it does, mark it as seen
+	if ht.doesNodeExistInBucket(index, node.ID) {
+		ht.markNodeAsSeen(node.ID)
+		return
+	}
+
+	node = node.merge(lastSeenNow)
+
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+
+	bucket := ht.RoutingTable[index]
+
+	if len(bucket) == ht.bSize {
+		if pinger(bucket[0]) != nil {
+			bucket = append(bucket, node)
+			bucket = bucket[1:]
+		}
+	} else {
+		bucket = append(bucket, node)
+	}
+
+	ht.RoutingTable[index] = bucket
+}
+
 func (ht *hashTable) removeNode(ID []byte) {
 	ht.mutex.Lock()
 	defer ht.mutex.Unlock()

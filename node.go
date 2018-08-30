@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/anacrolix/utp"
 )
@@ -19,15 +20,22 @@ func mustSocket(addr string) Socket {
 	return n
 }
 
-//
-// // NewNode create a new socket.
-// func NewNode(id []byte, addr string) (n NetworkNode, err error) {
-// 	return NetworkNode{
-// 		ID:   id,
-// 		IP:   net.ParseIP(h),
-// 		Port: p,
-// 	}, nil
-// }
+// nodeChecksumFunc pure function checksum.
+type nodeChecksumFunc func(NetworkNode) bool
+
+// Valid implements nodeChecksum
+func (t nodeChecksumFunc) Valid(n NetworkNode) bool {
+	return t(n)
+}
+
+// gatewayFingerprintChecksum checks to make sure the node ID matches sha1(IP + Port).
+func gatewayFingerprintChecksum(n NetworkNode) bool {
+	return bytes.Compare(GatewayFingerprint(n.IP, n.Port), n.ID) == 0
+}
+
+func alwaysValidChecksum(n NetworkNode) bool {
+	return true
+}
 
 // SocketOption option for the utp socket.
 type SocketOption func(*Socket)
@@ -105,6 +113,12 @@ func GatewayFingerprint(ip net.IP, port int) []byte {
 	return ContentAddressable(buf)
 }
 
+type networkNodeOption func(*NetworkNode)
+
+func lastSeenNow(n *NetworkNode) {
+	n.LastSeen = time.Now().UTC()
+}
+
 // NetworkNode is the over-the-wire representation of a node
 type NetworkNode struct {
 	// ID is a 20 byte unique identifier
@@ -115,6 +129,17 @@ type NetworkNode struct {
 
 	// Port is the public port of the node
 	Port int
+
+	// LastSeen when was this node last considered seen by the DHT
+	LastSeen time.Time
+}
+
+func (t NetworkNode) merge(options ...networkNodeOption) NetworkNode {
+	for _, opt := range options {
+		opt(&t)
+	}
+
+	return t
 }
 
 // nodeList is used in order to sort a list of arbitrary nodes against a

@@ -15,7 +15,11 @@ import (
 // is occupied.
 func TestFindNodeAllBuckets(t *testing.T) {
 	networking := newMockNetworking()
-	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionNodeID(getIDWithValues(0)))
+	dht := NewDHT(
+		Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionNodeID(getIDWithValues(0)),
+		OptionNodeIDChecksum(nodeChecksumFunc(alwaysValidChecksum)),
+	)
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
@@ -60,7 +64,11 @@ func TestFindNodeAllBuckets(t *testing.T) {
 func TestAddNodeTimeout(t *testing.T) {
 	networking := newMockNetworking()
 	probes := make(chan int)
-	dht := NewDHT(Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000}, OptionNodeID(getIDWithValues(0)))
+	dht := NewDHT(
+		Socket{Gateway: net.ParseIP("127.0.0.1"), Port: 3000},
+		OptionNodeID(getIDWithValues(0)),
+		OptionNodeIDChecksum(nodeChecksumFunc(alwaysValidChecksum)),
+	)
 	dht.networking = networking
 
 	go dht.Bind(grpc.NewServer())
