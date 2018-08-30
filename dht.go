@@ -191,8 +191,7 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 		queryRest bool
 		// We keep track of nodes contacted so far. We don't contact the same node
 		// twice.
-		contacted = dht.baddies.Copy()
-		// bloom.NewWithEstimates(1000, 0.0005)
+		contacted = dht.copyBad()
 	)
 
 	sl := dht.ht.getClosestContacts(alpha, key)
@@ -226,10 +225,15 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 			nearest, err := dht.networking.probe(deadline, key, node)
 			cancel()
 			if err != nil {
+				log.Println("unreachable node", hex.EncodeToString(node.ID), node.IP, node.Port)
+
 				// Node was unreachable for some reason. We will have to remove
 				// it from the shortlist, but we will keep it in our routing
 				// table in hopes that it might come back online in the future.
 				sl.RemoveNode(node)
+
+				// however lets mark it as bad so we don't try it for awhile.
+				dht.addBad(node)
 				continue
 			}
 
@@ -292,6 +296,7 @@ func (dht *DHT) copyBad() *bloom.BloomFilter {
 }
 
 func (dht *DHT) resetBad() {
+	log.Println("clearing bad node set")
 	dht.m.Lock()
 	dht.baddies.ClearAll()
 	dht.m.Unlock()
@@ -312,6 +317,7 @@ func (dht *DHT) timers() {
 					if _, err := dht.Locate(id); err != nil {
 						log.Println("failed to ping", hex.EncodeToString(id))
 					}
+					dht.ht.resetRefreshTimeForBucket(i)
 				}
 			}
 		case <-dht.networking.getDisconnect():

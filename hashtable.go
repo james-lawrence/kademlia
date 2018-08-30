@@ -96,7 +96,7 @@ func (ht *hashTable) markNodeAsSeen(node []byte) {
 		panic(errors.New("Tried to mark nonexistent node as seen"))
 	}
 
-	n := bucket[nodeIndex]
+	n := bucket[nodeIndex].merge(lastSeenNow)
 
 	log.Println("marking node as seen", hex.EncodeToString(n.ID), n.IP, n.Port, n.LastSeen)
 
