@@ -3,7 +3,9 @@ package kademlia
 import (
 	"bytes"
 	crand "crypto/rand"
+	"encoding/hex"
 	"errors"
+	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -89,11 +91,15 @@ func (ht *hashTable) markNodeAsSeen(node []byte) {
 			break
 		}
 	}
+
 	if nodeIndex == -1 {
 		panic(errors.New("Tried to mark nonexistent node as seen"))
 	}
 
 	n := bucket[nodeIndex]
+
+	log.Println("marking node as seen", hex.EncodeToString(n.ID), n.IP, n.Port, n.LastSeen)
+
 	bucket = append(bucket[:nodeIndex], bucket[nodeIndex+1:]...)
 	bucket = append(bucket, n)
 	ht.RoutingTable[index] = bucket

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/james-lawrence/kademlia/protocol"
@@ -60,6 +61,11 @@ type DHT struct {
 	n  NetworkNode
 	ht *hashTable
 
+	m *sync.RWMutex
+
+	// keeps track of bad nodes so we don't repeatedly try to contact them.
+	baddies *bloom.BloomFilter
+
 	networking networking
 
 	// checksum is used to ensure the NodeID conforms to some uniqueness rules
@@ -86,6 +92,8 @@ func NewDHT(s Socket, options ...Option) *DHT {
 		TPingMax:       time.Second,
 		TLocateTimeout: 5 * time.Second,
 		checksum:       nodeChecksumFunc(gatewayFingerprintChecksum),
+		baddies:        bloom.NewWithEstimates(2000, 0.0005),
+		m:              &sync.RWMutex{},
 	}.merge(options...)
 
 	dht = dht.merge(Option(func(u *DHT) {
@@ -183,7 +191,8 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 		queryRest bool
 		// We keep track of nodes contacted so far. We don't contact the same node
 		// twice.
-		contacted = bloom.NewWithEstimates(1000, 0.0005)
+		contacted = dht.baddies.Copy()
+		// bloom.NewWithEstimates(1000, 0.0005)
 	)
 
 	sl := dht.ht.getClosestContacts(alpha, key)
@@ -269,10 +278,32 @@ func (dht *DHT) addNode(node NetworkNode) {
 	})
 }
 
+func (dht *DHT) addBad(n NetworkNode) {
+	log.Println("adding bad node", hex.EncodeToString(n.ID), n.IP, n.Port)
+	dht.m.Lock()
+	dht.baddies.Add(n.ID)
+	dht.m.Unlock()
+}
+
+func (dht *DHT) copyBad() *bloom.BloomFilter {
+	dht.m.RLock()
+	defer dht.m.RUnlock()
+	return dht.baddies.Copy()
+}
+
+func (dht *DHT) resetBad() {
+	dht.m.Lock()
+	dht.baddies.ClearAll()
+	dht.m.Unlock()
+}
+
 func (dht *DHT) timers() {
+	t2 := time.NewTicker(time.Hour)
 	t := time.NewTicker(time.Second)
 	for {
 		select {
+		case <-t2.C:
+			dht.resetBad()
 		case <-t.C:
 			// Refresh
 			for i := 0; i < dht.ht.bBits; i++ {
