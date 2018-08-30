@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/utp"
+	"google.golang.org/grpc"
 )
 
 func mustSocket(addr string) Socket {
@@ -48,6 +49,13 @@ func SocketOptionGateway(gateway net.IP, port int) SocketOption {
 	}
 }
 
+// SocketOptionPuncher punches holes through nat routers.
+func SocketOptionPuncher(p puncher) SocketOption {
+	return func(s *Socket) {
+		s.punch = p
+	}
+}
+
 // NewSocket public ip of the socket.
 func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 	var (
@@ -72,6 +80,7 @@ func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 		Gateway: net.ParseIP(host),
 		Port:    port,
 		utps:    utps,
+		punch:   noopPuncher{},
 	}
 
 	return s.Merge(options...), nil
@@ -82,6 +91,7 @@ type Socket struct {
 	Gateway net.IP
 	Port    int
 	utps    *utp.Socket
+	punch   puncher
 }
 
 // NewNode create a node from the current socket and the given id.
@@ -104,7 +114,12 @@ func (t Socket) Merge(options ...SocketOption) Socket {
 
 // Dial a peer using this socket.
 func (t Socket) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
-	return t.utps.DialContext(ctx, "udp", net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port)))
+	addr := net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port))
+	if err := t.punch.Dial(ctx, n); err != nil {
+		return nil, err
+	}
+
+	return t.utps.DialContext(ctx, "udp", addr)
 }
 
 // GatewayFingerprint generate a fingerprint a IP/port combination.
@@ -234,4 +249,10 @@ func getDistance(id1 []byte, id2 []byte) *big.Int {
 	buf2 := new(big.Int).SetBytes(id2)
 	result := new(big.Int).Xor(buf1, buf2)
 	return result
+}
+
+type noopPuncher struct{}
+
+func (noopPuncher) Dial(context.Context, NetworkNode, ...grpc.CallOption) error {
+	return nil
 }
