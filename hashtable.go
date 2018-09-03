@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"time"
 )
 
 const (
@@ -40,8 +39,6 @@ type hashTable struct {
 	RoutingTable [][]NetworkNode // 160x20
 
 	mutex *sync.Mutex
-
-	refreshMap []time.Time
 }
 
 func newHashTable(n NetworkNode) *hashTable {
@@ -52,29 +49,8 @@ func newHashTable(n NetworkNode) *hashTable {
 		Self:  n,
 	}
 
-	ht.refreshMap = make([]time.Time, ht.bBits)
-
-	for i := 0; i < ht.bBits; i++ {
-		ht.resetRefreshTimeForBucket(i)
-	}
-
-	for i := 0; i < ht.bBits; i++ {
-		ht.RoutingTable = append(ht.RoutingTable, []NetworkNode{})
-	}
-
+	ht.RoutingTable = make([][]NetworkNode, ht.bBits)
 	return ht
-}
-
-func (ht *hashTable) resetRefreshTimeForBucket(bucket int) {
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-	ht.refreshMap[bucket] = time.Now()
-}
-
-func (ht *hashTable) getRefreshTimeForBucket(bucket int) time.Time {
-	ht.mutex.Lock()
-	defer ht.mutex.Unlock()
-	return ht.refreshMap[bucket]
 }
 
 func (ht *hashTable) markNodeAsSeen(node []byte) {
@@ -119,17 +95,13 @@ func (ht *hashTable) getClosestContacts(num int, target []byte, ignoredNodes ...
 	// in order
 	index := getBucketIndexFromDifferingBit(ht.bBits, ht.Self.ID, target)
 	indexList := []int{index}
-	i := index - 1
-	j := index + 1
-	for len(indexList) < ht.bBits {
+	for i, j := index-1, index+1; len(indexList) < ht.bBits; i, j = i-1, j+1 {
 		if j < ht.bBits {
 			indexList = append(indexList, j)
 		}
 		if i >= 0 {
 			indexList = append(indexList, i)
 		}
-		i--
-		j++
 	}
 
 	sl := &shortList{}

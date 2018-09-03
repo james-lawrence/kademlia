@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"log"
+	"math/rand"
 	"net"
 	"sort"
 	"sync"
@@ -88,7 +89,7 @@ func NewDHT(s Socket, options ...Option) *DHT {
 	dht := DHT{
 		s:              s,
 		n:              s.NewNode(),
-		TRefresh:       time.Hour,
+		TRefresh:       30 * time.Second,
 		TPingMax:       time.Second,
 		TLocateTimeout: 5 * time.Second,
 		checksum:       nodeChecksumFunc(gatewayFingerprintChecksum),
@@ -204,9 +205,6 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 
 	closestNode := sl.Nodes[0]
 
-	bucket := getBucketIndexFromDifferingBit(dht.ht.bBits, key, dht.ht.Self.ID)
-	dht.ht.resetRefreshTimeForBucket(bucket)
-
 	for {
 		// Next we send messages to the first (closest) alpha nodes in the
 		// shortlist and wait for a response
@@ -304,24 +302,21 @@ func (dht *DHT) resetBad() {
 
 func (dht *DHT) timers() {
 	t2 := time.NewTicker(time.Hour)
-	t := time.NewTicker(time.Second)
+	t := time.NewTicker(dht.TRefresh)
 	for {
 		select {
 		case <-t2.C:
 			dht.resetBad()
 		case <-t.C:
-			// Refresh
-			for i := 0; i < dht.ht.bBits; i++ {
-				if time.Since(dht.ht.getRefreshTimeForBucket(i)) > dht.TRefresh {
-					id := dht.ht.getRandomIDFromBucket(dht.ht.bSize)
-					if _, err := dht.Locate(id); err != nil {
-						log.Println("failed to ping", hex.EncodeToString(id))
-					}
-					dht.ht.resetRefreshTimeForBucket(i)
-				}
+			bucket := rand.Intn(dht.ht.bSize)
+			id := dht.ht.getRandomIDFromBucket(bucket)
+			log.Println("refreshing", hex.EncodeToString(id))
+			if _, err := dht.Locate(id); err != nil {
+				log.Println("failed to ping", hex.EncodeToString(id))
 			}
 		case <-dht.networking.getDisconnect():
 			t.Stop()
+			t2.Stop()
 			dht.networking.timersFin()
 			return
 		}
