@@ -307,8 +307,11 @@ func (dht *DHT) ping(n NetworkNode) (_ NetworkNode, err error) {
 	return dht.networking.ping(deadline, n)
 }
 
-func (dht *DHT) verify(nodes ...NetworkNode) (err error) {
+func (dht *DHT) verify(nodes ...NetworkNode) {
 	for _, n := range nodes {
+		var (
+			err error
+		)
 		if n, err = dht.ping(n); err != nil {
 			log.Println("ping failed", spew.Sdump(n), err)
 			continue
@@ -316,8 +319,6 @@ func (dht *DHT) verify(nodes ...NetworkNode) (err error) {
 
 		dht.addNode(n)
 	}
-
-	return nil
 }
 
 func (dht *DHT) timers() {
@@ -338,9 +339,7 @@ func (dht *DHT) timers() {
 
 			old := dht.ht.lastSeenBefore(cutoff)
 			log.Println("verifying old nodes", len(old))
-			if err := dht.verify(old...); err != nil {
-				log.Println("failed only nodes", err)
-			}
+			dht.verify(old...)
 		case <-dht.networking.getDisconnect():
 			t.Stop()
 			t2.Stop()
