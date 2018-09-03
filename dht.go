@@ -311,7 +311,7 @@ func (dht *DHT) verify(nodes ...NetworkNode) {
 		var (
 			err error
 		)
-		if n, err = dht.ping(n); err != nil {
+		if _, err = dht.ping(n); err != nil {
 			log.Println("ping failed", hex.EncodeToString(n.ID), err)
 			now := time.Now().UTC()
 			death := n.LastSeen.Add(4 * dht.TRefresh)
@@ -322,7 +322,7 @@ func (dht *DHT) verify(nodes ...NetworkNode) {
 			continue
 		}
 
-		dht.addNode(n)
+		dht.ht.markNodeAsSeen(n.ID)
 	}
 }
 
