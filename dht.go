@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/james-lawrence/kademlia/protocol"
 	"github.com/willf/bloom"
 	"google.golang.org/grpc"
@@ -72,7 +73,9 @@ type DHT struct {
 	// checksum is used to ensure the NodeID conforms to some uniqueness rules
 	checksum nodeChecksum
 
-	// Seconds after which an otherwise unaccessed bucket must be refreshed
+	// Seconds after which an otherwise unaccessed bucket must be refreshed,
+	// also used to reap dead nodes from the DHT. if a node hasnt been seen in 4x
+	// the refresh period then its dead.
 	TRefresh time.Duration
 
 	// The maximum time to wait for a response from a node before discarding
@@ -155,13 +158,10 @@ func (dht *DHT) Bootstrap(nodes ...NetworkNode) (err error) {
 
 	for _, bn := range nodes {
 		if bn.ID == nil {
-			deadline, cancel := context.WithTimeout(context.Background(), dht.TPingMax)
-			if bn, err = dht.networking.ping(deadline, bn); err != nil {
-				cancel()
-				log.Println("failed to send ping", err)
+			if bn, err = dht.ping(bn); err != nil {
+				log.Println("ping failed", bn, err)
 				continue
 			}
-			cancel()
 		}
 
 		dht.addNode(bn)
@@ -298,6 +298,26 @@ func (dht *DHT) resetBad() {
 	dht.m.Lock()
 	dht.baddies.ClearAll()
 	dht.m.Unlock()
+}
+
+func (dht *DHT) ping(n NetworkNode) (_ NetworkNode, err error) {
+	deadline, cancel := context.WithTimeout(context.Background(), dht.TPingMax)
+	defer cancel()
+
+	return dht.networking.ping(deadline, n)
+}
+
+func (dht *DHT) verify(nodes ...NetworkNode) (err error) {
+	for _, n := range nodes {
+		if n, err = dht.ping(n); err != nil {
+			log.Println("ping failed", spew.Sdump(n), err)
+			continue
+		}
+
+		dht.addNode(n)
+	}
+
+	return nil
 }
 
 func (dht *DHT) timers() {
