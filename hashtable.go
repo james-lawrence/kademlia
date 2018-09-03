@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
+	"time"
 )
 
 const (
@@ -249,6 +250,23 @@ func (ht *hashTable) getRandomIDFromBucket(bucket int) []byte {
 	}
 
 	return id
+}
+
+func (ht *hashTable) lastSeenBefore(cutoff time.Time) (nodes []NetworkNode) {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+	nodes = make([]NetworkNode, 0, ht.bSize)
+	for _, v := range ht.RoutingTable {
+		for _, n := range v {
+			if n.LastSeen.Before(cutoff) {
+				nodes = append(nodes, n)
+			} else {
+				break
+			}
+		}
+	}
+
+	return nodes
 }
 
 func getBucketIndexFromDifferingBit(b int, id1 []byte, id2 []byte) int {

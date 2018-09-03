@@ -328,11 +328,18 @@ func (dht *DHT) timers() {
 		case <-t2.C:
 			dht.resetBad()
 		case <-t.C:
-			bucket := rand.Intn(dht.ht.bSize)
+			cutoff := time.Now().UTC().Add(-1 * dht.TRefresh)
+			bucket := rand.Intn(dht.ht.bBits)
 			id := dht.ht.getRandomIDFromBucket(bucket)
-			log.Println("refreshing", hex.EncodeToString(id))
+			log.Println("refreshing bucket", bucket, hex.EncodeToString(id))
 			if _, err := dht.Locate(id); err != nil {
-				log.Println("failed to ping", hex.EncodeToString(id))
+				log.Println("bucket refresh failed", hex.EncodeToString(id), err)
+			}
+
+			old := dht.ht.lastSeenBefore(cutoff)
+			log.Println("verifying old nodes", len(old))
+			if err := dht.verify(old...); err != nil {
+				log.Println("failed only nodes", err)
 			}
 		case <-dht.networking.getDisconnect():
 			t.Stop()
