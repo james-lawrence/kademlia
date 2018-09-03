@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/james-lawrence/kademlia/protocol"
 	"github.com/willf/bloom"
 	"google.golang.org/grpc"
@@ -313,7 +312,13 @@ func (dht *DHT) verify(nodes ...NetworkNode) {
 			err error
 		)
 		if n, err = dht.ping(n); err != nil {
-			log.Println("ping failed", spew.Sdump(n), err)
+			log.Println("ping failed", hex.EncodeToString(n.ID), err)
+			now := time.Now().UTC()
+			death := n.LastSeen.Add(4 * dht.TRefresh)
+			if death.Before(now) {
+				log.Println("dead node detected, removing", hex.EncodeToString(n.ID), death, now)
+				dht.ht.removeNode(n.ID)
+			}
 			continue
 		}
 
