@@ -89,7 +89,7 @@ func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
 func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn NetworkNode, err error) {
 	conn, err := rn.getConn(to)
 	if err != nil {
-		return _zn, err
+		return _zn, errors.Wrap(err, "ping failed")
 	}
 	defer conn.Close()
 
@@ -102,7 +102,7 @@ func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn Ne
 		return _zn, errors.Wrap(err, "ping failed")
 	}
 
-	return toNetworkNode(resp.Sender), err
+	return toNetworkNode(resp.Sender), nil
 }
 
 func (rn *realNetworking) probe(deadline context.Context, key []byte, to NetworkNode) ([]NetworkNode, error) {
