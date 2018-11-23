@@ -56,6 +56,13 @@ func SocketOptionPuncher(p puncher) SocketOption {
 	}
 }
 
+// SocketOptionDisablePuncher disabling punching holes through nat routers.
+func SocketOptionDisablePuncher() SocketOption {
+	return func(s *Socket) {
+		s.punch = noopPuncher{}
+	}
+}
+
 // NewSocket public ip of the socket.
 func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 	var (
@@ -77,10 +84,12 @@ func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 	}
 
 	s = Socket{
-		Gateway: net.ParseIP(host),
-		Port:    port,
-		utps:    utps,
-		punch:   noopPuncher{},
+		localIP:   net.ParseIP(host),
+		localPort: port,
+		Gateway:   net.ParseIP(host),
+		Port:      port,
+		utps:      utps,
+		punch:     noopPuncher{},
 	}
 
 	return s.Merge(options...), nil
@@ -88,10 +97,10 @@ func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 
 // Socket network connection with public IP information.
 type Socket struct {
-	Gateway net.IP
-	Port    int
-	utps    *utp.Socket
-	punch   puncher
+	localIP, Gateway net.IP
+	localPort, Port  int
+	utps             *utp.Socket
+	punch            puncher
 }
 
 // NewNode create a node from the current socket and the given id.
@@ -100,6 +109,15 @@ func (t Socket) NewNode() NetworkNode {
 		ID:   GatewayFingerprint(t.Gateway, t.Port),
 		IP:   t.Gateway,
 		Port: t.Port,
+	}
+}
+
+// LocalNode ...
+func (t Socket) LocalNode() NetworkNode {
+	return NetworkNode{
+		ID:   GatewayFingerprint(t.localIP, t.localPort),
+		IP:   t.localIP,
+		Port: t.localPort,
 	}
 }
 
@@ -120,6 +138,22 @@ func (t Socket) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
 	}
 
 	return t.utps.DialContext(ctx, "udp", addr)
+}
+
+// Accept waits for and returns the next connection to the listener.
+func (t Socket) Accept() (net.Conn, error) {
+	return t.utps.Accept()
+}
+
+// Close closes the listener.
+// Any blocked Accept operations will be unblocked and return errors.
+func (t Socket) Close() error {
+	return t.utps.Close()
+}
+
+// Addr returns the listener's network address.
+func (t Socket) Addr() net.Addr {
+	return t.utps.Addr()
 }
 
 // GatewayFingerprint generate a fingerprint a IP/port combination.

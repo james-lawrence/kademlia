@@ -31,21 +31,13 @@
   name = "github.com/anacrolix/utp"
 
 [[constraint]]
-  name = "github.com/ccding/go-stun"
-  version = "0.1.0"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/prettymuchbryce/kademlia"
-
-[[constraint]]
   name = "github.com/stretchr/testify"
   version = "1.2.1"
-
-[[constraint]]
-  name = "gopkg.in/readline.v1"
-  version = "1.4.0"
 
 [prune]
   go-tests = true
   unused-packages = true
+
+[[constraint]]
+  name = "github.com/pkg/errors"
+  version = "0.8.0"

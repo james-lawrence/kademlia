@@ -75,6 +75,10 @@ func (net *mockNetworking) getDisconnect() chan (int) {
 	return net.dc
 }
 
+func (net *mockNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
+	return nil, ErrMockNetworking
+}
+
 func mockFindNodeResponse(nextID []byte) []NetworkNode {
 	return []NetworkNode{{IP: net.ParseIP("0.0.0.0"), Port: 3001, ID: nextID}}
 }

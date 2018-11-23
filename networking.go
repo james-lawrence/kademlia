@@ -2,14 +2,16 @@ package kademlia
 
 import (
 	"context"
-	"errors"
+	"crypto/tls"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/james-lawrence/kademlia/protocol"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var (
@@ -24,10 +26,12 @@ type networking interface {
 	listen(s *grpc.Server) error
 	disconnect() error
 	getNetworkAddr() string
+	getConn(to NetworkNode) (*grpc.ClientConn, error)
 }
 
-func newNetwork(n NetworkNode, s Socket) *realNetworking {
+func newNetwork(n NetworkNode, s Socket, c *tls.Config) *realNetworking {
 	return &realNetworking{
+		c:            c,
 		socket:       s,
 		node:         n,
 		mutex:        &sync.Mutex{},
@@ -51,6 +55,7 @@ type realNetworking struct {
 	remoteAddress string
 	node          NetworkNode
 	socket        Socket
+	c             *tls.Config
 }
 
 func (rn *realNetworking) getNetworkAddr() string {
@@ -67,10 +72,17 @@ func (rn *realNetworking) timersFin() {
 
 func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
 	dst := net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port))
-	return grpc.Dial(dst, grpc.WithInsecure(), grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+	creds := grpc.WithInsecure()
+	if rn.c != nil {
+		creds = grpc.WithTransportCredentials(credentials.NewTLS(rn.c))
+	}
+
+	return grpc.Dial(dst, creds, grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
 		deadline, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		return rn.socket.Dial(deadline, to)
+
+		conn, err := rn.socket.Dial(deadline, to)
+		return conn, err
 	}))
 }
 
@@ -87,7 +99,7 @@ func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn Ne
 	})
 
 	if err != nil {
-		return _zn, err
+		return _zn, errors.Wrap(err, "ping failed")
 	}
 
 	return toNetworkNode(resp.Sender), err

@@ -3,14 +3,15 @@ package kademlia
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"log"
 	"math/rand"
-	"net"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/james-lawrence/kademlia/protocol"
 	"github.com/willf/bloom"
 	"google.golang.org/grpc"
@@ -56,6 +57,13 @@ func OptionNodeIDChecksum(c nodeChecksum) Option {
 	}
 }
 
+// OptionTLSConfig ...
+func OptionTLSConfig(c *tls.Config) Option {
+	return func(dht *DHT) {
+		dht.tlsc = c
+	}
+}
+
 // DHT represents the state of the local node in the distributed hash table
 type DHT struct {
 	s  Socket
@@ -83,6 +91,8 @@ type DHT struct {
 
 	// The maximum time to wait to locate a key before timing out.
 	TLocateTimeout time.Duration
+
+	tlsc *tls.Config
 }
 
 // NewDHT initializes a new DHT node. A store and options struct must be
@@ -92,7 +102,7 @@ func NewDHT(s Socket, options ...Option) *DHT {
 		s:              s,
 		n:              s.NewNode(),
 		TRefresh:       30 * time.Second,
-		TPingMax:       time.Second,
+		TPingMax:       3 * time.Second,
 		TLocateTimeout: 5 * time.Second,
 		checksum:       nodeChecksumFunc(gatewayFingerprintChecksum),
 		baddies:        bloom.NewWithEstimates(2000, 0.0005),
@@ -101,7 +111,7 @@ func NewDHT(s Socket, options ...Option) *DHT {
 
 	dht = dht.merge(Option(func(u *DHT) {
 		u.ht = newHashTable(u.n)
-		u.networking = newNetwork(u.n, s)
+		u.networking = newNetwork(u.n, s, dht.tlsc)
 	}))
 
 	return &dht
@@ -131,8 +141,8 @@ func (dht *DHT) GetSelfID() []byte {
 }
 
 // Dial a peer in the DHT.
-func (dht *DHT) Dial(ctx context.Context, n NetworkNode) (net.Conn, error) {
-	return dht.s.Dial(ctx, n)
+func (dht *DHT) Dial(ctx context.Context, n NetworkNode) (*grpc.ClientConn, error) {
+	return dht.networking.getConn(n)
 }
 
 // GetSelf returns the node information of the local node.
@@ -157,10 +167,12 @@ func (dht *DHT) Bootstrap(nodes ...NetworkNode) (err error) {
 
 	for _, bn := range nodes {
 		if bn.ID == nil {
-			if bn, err = dht.ping(bn); err != nil {
-				log.Println("ping failed", bn, err)
+			var updated NetworkNode
+			if updated, err = dht.ping(bn); err != nil {
+				log.Println("ping failed", spew.Sdump(bn), err)
 				continue
 			}
+			bn = updated
 		}
 
 		dht.addNode(bn)
@@ -222,7 +234,7 @@ func (dht *DHT) Locate(key []byte) (_none []NetworkNode, err error) {
 			nearest, err := dht.networking.probe(deadline, key, node)
 			cancel()
 			if err != nil {
-				log.Println("unreachable node", hex.EncodeToString(node.ID), node.IP, node.Port)
+				log.Println("unreachable node", hex.EncodeToString(node.ID), node.IP, node.Port, err)
 
 				// Node was unreachable for some reason. We will have to remove
 				// it from the shortlist, but we will keep it in our routing
@@ -337,13 +349,13 @@ func (dht *DHT) timers() {
 			cutoff := time.Now().UTC().Add(-1 * dht.TRefresh)
 			bucket := rand.Intn(dht.ht.bBits)
 			id := dht.ht.getRandomIDFromBucket(bucket)
-			log.Println("refreshing bucket", bucket, hex.EncodeToString(id))
+			// log.Println("refreshing bucket", bucket, hex.EncodeToString(id))
 			if _, err := dht.Locate(id); err != nil {
 				log.Println("bucket refresh failed", hex.EncodeToString(id), err)
 			}
 
 			old := dht.ht.lastSeenBefore(cutoff)
-			log.Println("verifying old nodes", len(old))
+			// log.Println("verifying old nodes", len(old))
 			dht.verify(old...)
 		case <-dht.networking.getDisconnect():
 			t.Stop()
