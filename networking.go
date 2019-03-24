@@ -6,7 +6,6 @@ import (
 	"net"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/james-lawrence/kademlia/protocol"
 	"github.com/pkg/errors"
@@ -71,19 +70,12 @@ func (rn *realNetworking) timersFin() {
 }
 
 func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
-	dst := net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port))
 	creds := grpc.WithInsecure()
 	if rn.c != nil {
 		creds = grpc.WithTransportCredentials(credentials.NewTLS(rn.c))
 	}
 
-	return grpc.Dial(dst, creds, grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
-		deadline, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		conn, err := rn.socket.Dial(deadline, to)
-		return conn, err
-	}))
+	return grpc.Dial(net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port)), creds, WithNodeDialer(rn.socket))
 }
 
 func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn NetworkNode, err error) {

@@ -17,9 +17,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-type puncher interface {
-	Dial(context.Context, NetworkNode, ...grpc.CallOption) error
-}
 type nodeChecksum interface {
 	Valid(NetworkNode) bool
 }

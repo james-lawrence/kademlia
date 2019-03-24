@@ -15,10 +15,9 @@ import (
 // at the end all should know about each other
 func TestBootstrapTwentyNodes(t *testing.T) {
 	done := make(chan bool)
-	port := 3000
 	dhts := []*DHT{}
 	for i := 0; i < 20; i++ {
-		s, err := NewSocket(net.JoinHostPort("127.0.0.1", strconv.Itoa(port+i)))
+		s, err := NewSocket(net.JoinHostPort("", strconv.Itoa(0)))
 		if !assert.NoError(t, err) {
 			return
 		}
