@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
-	"strconv"
 	"sync"
 
 	"github.com/james-lawrence/kademlia/protocol"
@@ -69,13 +68,21 @@ func (rn *realNetworking) timersFin() {
 	rn.dcTimersChan <- 1
 }
 
-func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
+func (rn *realNetworking) getConn(to NetworkNode) (_ *grpc.ClientConn, err error) {
+	var (
+		addr net.Addr
+	)
+
+	if addr, err = UDPAddressFromNode(to); err != nil {
+		return nil, err
+	}
+
 	creds := grpc.WithInsecure()
 	if rn.c != nil {
 		creds = grpc.WithTransportCredentials(credentials.NewTLS(rn.c))
 	}
 
-	return grpc.Dial(net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port)), creds, WithUDPNodeDialer(rn.socket))
+	return grpc.Dial(addr.String(), creds, WithUDPNodeDialer(rn.socket))
 }
 
 func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn NetworkNode, err error) {

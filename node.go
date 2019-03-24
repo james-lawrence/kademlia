@@ -5,6 +5,7 @@ import (
 	"context"
 	"math/big"
 	"net"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -54,6 +55,11 @@ func (t NetworkNode) merge(options ...networkNodeOption) NetworkNode {
 	}
 
 	return t
+}
+
+// UDPAddressFromNode convert a NetworkNode into its corresponding udp address.
+func UDPAddressFromNode(n NetworkNode) (net.Addr, error) {
+	return net.ResolveUDPAddr("udp", net.JoinHostPort(n.IP.String(), strconv.Itoa(n.Port)))
 }
 
 // nodeList is used in order to sort a list of arbitrary nodes against a
