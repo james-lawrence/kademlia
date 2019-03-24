@@ -138,6 +138,11 @@ func (t Socket) Addr() net.Addr {
 	return t.utps.Addr()
 }
 
+// LocalAddr returns the listener's network address
+func (t Socket) LocalAddr() net.Addr {
+	return t.utps.LocalAddr()
+}
+
 // GatewayFingerprint generate a fingerprint a IP/port combination.
 func GatewayFingerprint(ip net.IP, port int) []byte {
 	buf := bytes.NewBufferString(ip.String() + strconv.Itoa(int(port))).Bytes()
