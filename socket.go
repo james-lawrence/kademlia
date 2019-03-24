@@ -146,7 +146,6 @@ func GatewayFingerprint(ip net.IP, port int) []byte {
 
 type dialer interface {
 	Dial(context.Context, net.Addr) (net.Conn, error)
-	Addr() net.Addr
 }
 
 // WithUDPNodeDialer creates a DialOption from a dialer
