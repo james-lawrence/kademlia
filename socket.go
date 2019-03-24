@@ -150,14 +150,14 @@ type dialer interface {
 	Addr() net.Addr
 }
 
-// WithNodeDialer creates a DialOption from a dialer
-func WithNodeDialer(d dialer) grpc.DialOption {
+// WithUDPNodeDialer creates a DialOption from a dialer
+func WithUDPNodeDialer(d dialer) grpc.DialOption {
 	return grpc.WithDialer(func(dst string, timeout time.Duration) (_ net.Conn, err error) {
 		var (
 			addr *net.UDPAddr
 		)
 
-		if addr, err = net.ResolveUDPAddr(d.Addr().Network(), dst); err != nil {
+		if addr, err = net.ResolveUDPAddr("udp", dst); err != nil {
 			return nil, err
 		}
 

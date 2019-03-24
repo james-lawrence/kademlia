@@ -75,7 +75,7 @@ func (rn *realNetworking) getConn(to NetworkNode) (*grpc.ClientConn, error) {
 		creds = grpc.WithTransportCredentials(credentials.NewTLS(rn.c))
 	}
 
-	return grpc.Dial(net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port)), creds, WithNodeDialer(rn.socket))
+	return grpc.Dial(net.JoinHostPort(to.IP.String(), strconv.Itoa(to.Port)), creds, WithUDPNodeDialer(rn.socket))
 }
 
 func (rn *realNetworking) ping(deadline context.Context, to NetworkNode) (_zn NetworkNode, err error) {
