@@ -20,9 +20,15 @@ type puncher interface {
 type SocketOption func(*Socket)
 
 // SocketOptionGateway public IP for the socket.
-func SocketOptionGateway(gateway net.IP, port int) SocketOption {
+func SocketOptionGateway(gateway net.IP) SocketOption {
 	return func(s *Socket) {
 		s.Gateway = gateway
+	}
+}
+
+// SocketOptionPort public for for the socket.
+func SocketOptionPort(port int) SocketOption {
+	return func(s *Socket) {
 		s.Port = port
 	}
 }
