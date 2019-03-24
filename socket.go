@@ -3,7 +3,6 @@ package kademlia
 import (
 	"bytes"
 	"context"
-	"log"
 	"net"
 	"strconv"
 	"time"
@@ -117,16 +116,10 @@ func (t Socket) Merge(options ...SocketOption) Socket {
 // Dial the given net.Addr
 func (t Socket) Dial(ctx context.Context, addr net.Addr) (conn net.Conn, err error) {
 	if err = t.punch.Dial(ctx, addr); err != nil {
-		log.Println("punch failed", err)
 		return nil, err
 	}
 
-	conn, err = t.utps.DialContext(ctx, addr.Network(), addr.String())
-
-	if err != nil {
-		log.Println("error", err)
-	}
-	return conn, err
+	return t.utps.DialContext(ctx, addr.Network(), addr.String())
 }
 
 // Accept waits for and returns the next connection to the listener.
