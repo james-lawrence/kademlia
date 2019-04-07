@@ -11,10 +11,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-type puncher interface {
-	Dial(context.Context, net.Addr, ...grpc.CallOption) error
-}
-
 // SocketOption option for the utp socket.
 type SocketOption func(*Socket)
 
@@ -29,20 +25,6 @@ func SocketOptionGateway(gateway net.IP) SocketOption {
 func SocketOptionPort(port int) SocketOption {
 	return func(s *Socket) {
 		s.Port = port
-	}
-}
-
-// SocketOptionPuncher punches holes through nat routers.
-func SocketOptionPuncher(p puncher) SocketOption {
-	return func(s *Socket) {
-		s.punch = p
-	}
-}
-
-// SocketOptionDisablePuncher disabling punching holes through nat routers.
-func SocketOptionDisablePuncher() SocketOption {
-	return func(s *Socket) {
-		s.punch = noopPuncher{}
 	}
 }
 
@@ -72,7 +54,6 @@ func NewSocket(addr string, options ...SocketOption) (s Socket, err error) {
 		Gateway:   net.ParseIP(host),
 		Port:      port,
 		utps:      utps,
-		punch:     noopPuncher{},
 	}
 
 	return s.Merge(options...), nil
@@ -83,7 +64,6 @@ type Socket struct {
 	localIP, Gateway net.IP
 	localPort, Port  int
 	utps             *utp.Socket
-	punch            puncher
 }
 
 // NewNode create a node from the current socket and the given id.
@@ -115,10 +95,6 @@ func (t Socket) Merge(options ...SocketOption) Socket {
 
 // Dial the given net.Addr
 func (t Socket) Dial(ctx context.Context, addr net.Addr) (conn net.Conn, err error) {
-	if err = t.punch.Dial(ctx, addr); err != nil {
-		return nil, err
-	}
-
 	return t.utps.DialContext(ctx, addr.Network(), addr.String())
 }
 
